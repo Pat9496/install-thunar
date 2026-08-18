@@ -595,19 +595,118 @@ detect_terminal_emulator() {
   done
 }
 
+escape_xml() {
+  local s="$1"
+  s="${s//&/&amp;}"
+  s="${s//</&lt;}"
+  s="${s//>/&gt;}"
+  echo "${s}"
+}
+
+build_terminal_command() {
+  local terminal="$1"
+  case "${terminal}" in
+    alacritty | foot) echo "${terminal} --working-directory %f" ;;
+    kitty) echo "${terminal} --directory %f" ;;
+    wezterm) echo "${terminal} start --cwd %f" ;;
+    konsole) echo "${terminal} --workdir %f" ;;
+    gnome-terminal | xfce4-terminal | terminator | tilix) echo "${terminal} --working-directory=%f" ;;
+    urxvt) echo "${terminal} -cd %f" ;;
+    *) echo "" ;;
+  esac
+}
+
+configure_uca_terminal() {
+  local terminal="$1"
+  local command="$2"
+
+  if [[ -z "${command}" ]]; then
+    log "Don't know the working-directory flag for '${terminal}'; leaving Thunar's 'Open Terminal Here' action untouched."
+    return
+  fi
+
+  local config_home="${XDG_CONFIG_HOME:-${HOME}/.config}"
+  local uca_dir="${config_home}/Thunar"
+  local uca_file="${uca_dir}/uca.xml"
+  local escaped_command
+  escaped_command=$(escape_xml "${command}")
+
+  mkdir -p "${uca_dir}"
+
+  local action_xml
+  action_xml=$(cat <<EOF
+<action>
+	<icon>utilities-terminal</icon>
+	<name>Open Terminal Here</name>
+	<submenu></submenu>
+	<unique-id>$(date +%s%N)-1</unique-id>
+	<command>${escaped_command}</command>
+	<description>Open a terminal in the current directory</description>
+	<range></range>
+	<patterns>*</patterns>
+	<startup-notify/>
+	<directories/>
+</action>
+EOF
+  )
+
+  if [[ ! -f "${uca_file}" ]]; then
+    cat > "${uca_file}" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<actions>
+${action_xml}
+</actions>
+EOF
+    log "Created ${uca_file} with an 'Open Terminal Here' action using: ${command}"
+    chezmoi_track "${uca_file}"
+    return
+  fi
+
+  local tmpfile
+  tmpfile=$(mktemp)
+  if awk -v newcmd="${escaped_command}" '
+      /<action>/ { in_action = 1 }
+      in_action && /<name>Open Terminal Here<\/name>/ { found_name = 1 }
+      in_action && found_name && /<command>/ && !replaced {
+        sub(/<command>.*<\/command>/, "<command>" newcmd "</command>")
+        replaced = 1
+      }
+      { print }
+      /<\/action>/ { in_action = 0; found_name = 0 }
+      END { if (replaced) exit 0; else exit 1 }
+    ' "${uca_file}" > "${tmpfile}"; then
+    mv "${tmpfile}" "${uca_file}"
+    log "Updated Thunar's existing 'Open Terminal Here' action to use: ${command}"
+    chezmoi_track "${uca_file}"
+    return
+  fi
+
+  rm -f "${tmpfile}"
+  if grep -q '</actions>' "${uca_file}"; then
+    local tmpfile2
+    tmpfile2=$(mktemp)
+    awk -v action="${action_xml}" '/<\/actions>/ { print action } { print }' "${uca_file}" > "${tmpfile2}"
+    mv "${tmpfile2}" "${uca_file}"
+    log "Added a new 'Open Terminal Here' action to Thunar using: ${command}"
+    chezmoi_track "${uca_file}"
+  else
+    log "${uca_file} exists but has no '</actions>' closing tag; leaving it untouched."
+  fi
+}
+
 configure_terminal() {
   local terminal
   terminal=$(detect_terminal_emulator)
 
   if [[ -z "${terminal}" ]]; then
     log "Could not detect a terminal emulator (set THUNAR_TERMINAL to override)."
-    log "Skipping automatic 'Open Terminal Here' configuration."
+    log "Skipping 'Open Terminal Here' configuration."
     return
   fi
 
   if ! command -v "${terminal}" >/dev/null 2>&1; then
     log "Terminal emulator '${terminal}' (from THUNAR_TERMINAL) is not on PATH."
-    log "Skipping automatic 'Open Terminal Here' configuration."
+    log "Skipping 'Open Terminal Here' configuration."
     return
   fi
 
@@ -645,10 +744,14 @@ EOF
     printf 'TerminalEmulatorDismissed=true\n' >> "${helpers_rc}"
   fi
 
-  log "Thunar 'Open Terminal Here' configured to use: ${terminal}"
+  log "exo preferred TerminalEmulator set to: ${terminal} (best-effort; not all exo builds resolve custom helpers reliably)"
 
   chezmoi_track "${helper_file}"
   chezmoi_track "${helpers_rc}"
+
+  local terminal_command
+  terminal_command=$(build_terminal_command "${terminal}")
+  configure_uca_terminal "${terminal}" "${terminal_command}"
 }
 
 main() {

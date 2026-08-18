@@ -40,7 +40,11 @@ The script picks a terminal emulator, in order: `$THUNAR_TERMINAL` if set, then 
 THUNAR_TERMINAL="alacritty" ./install-thunar.sh
 ```
 
-If no terminal emulator can be found, this step is skipped and Thunar's terminal setting is left untouched.
+The script edits Thunar's own `~/.config/Thunar/uca.xml` directly, pointing the "Open Terminal Here" custom action straight at the chosen terminal (e.g. `alacritty --working-directory %f`) instead of routing through `exo-open --launch TerminalEmulator`. That indirection is Thunar's own default, but it depends on Xfce's `exo` "preferred applications" framework, which in practice often fails outside a full XFCE install with a "Could not find fallback TerminalEmulator application" error — even when its config is written correctly — so this script bypasses it for reliability. It still also writes the `exo` helper config (`~/.config/xfce4/helpers.rc` and a custom helper `.desktop`) as a best-effort secondary layer, in case other tools rely on it.
+
+This direct rewrite is only done for terminals with a known "start in this directory" flag (the ones listed above, minus `x-terminal-emulator` and `xterm`, which don't have one this script can rely on). For anything else, only the `exo` helper config is written, and Thunar's custom action is left as-is.
+
+If no terminal emulator can be found, this step is skipped entirely and nothing is touched.
 
 ## Supported package managers
 
@@ -54,7 +58,7 @@ On KDE Plasma 5, the shortcut is applied immediately. On KDE Plasma 6, there is 
 
 ## chezmoi integration
 
-If [chezmoi](https://www.chezmoi.io/) is installed and already initialized (its source directory is a git repository), the script adds the configuration files it wrote or modified — the KDE shortcut files, the XFCE keyboard-shortcuts XML, or the terminal-emulator helper files (`~/.local/share/xfce4/helpers/custom-TerminalEmulator.desktop` and `~/.config/xfce4/helpers.rc`) — to your chezmoi source state. This is skipped entirely if chezmoi isn't installed or hasn't been initialized, and it never touches GNOME/Cinnamon/MATE shortcuts since those live in the dconf database rather than a file.
+If [chezmoi](https://www.chezmoi.io/) is installed and already initialized (its source directory is a git repository), the script adds the configuration files it wrote or modified — the KDE shortcut files, the XFCE keyboard-shortcuts XML, Thunar's `uca.xml`, or the terminal-emulator helper files (`~/.local/share/xfce4/helpers/custom-TerminalEmulator.desktop` and `~/.config/xfce4/helpers.rc`) — to your chezmoi source state. This is skipped entirely if chezmoi isn't installed or hasn't been initialized, and it never touches GNOME/Cinnamon/MATE shortcuts since those live in the dconf database rather than a file.
 
 ## Contributing
 
