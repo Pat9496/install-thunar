@@ -113,6 +113,79 @@ find_free_suffix() {
   done
 }
 
+detect_plasma_major_version() {
+  if ! command -v plasmashell >/dev/null 2>&1; then
+    return
+  fi
+  local version_output
+  version_output=$(plasmashell --version 2>/dev/null || echo "")
+  printf '%s\n' "${version_output}" | grep -oE '[0-9]+' | head -n1 || true
+}
+
+convert_shortcut_to_kde() {
+  local rest="$1"
+  local mods=""
+  local mod
+  while [[ "${rest}" =~ ^\<([A-Za-z0-9]+)\>(.*)$ ]]; do
+    mod="${BASH_REMATCH[1]}"
+    rest="${BASH_REMATCH[2]}"
+    case "${mod,,}" in
+      super | mod4) mods+="Meta+" ;;
+      control | ctrl | primary) mods+="Ctrl+" ;;
+      alt) mods+="Alt+" ;;
+      shift) mods+="Shift+" ;;
+      *) mods+="${mod}+" ;;
+    esac
+  done
+
+  local key="${rest}"
+  local key_lower="${key,,}"
+  case "${key_lower}" in
+    f1 | f2 | f3 | f4 | f5 | f6 | f7 | f8 | f9 | f10 | f11 | f12) key="${key^^}" ;;
+    tab) key="Tab" ;;
+    space) key="Space" ;;
+    return | enter) key="Return" ;;
+    escape | esc) key="Escape" ;;
+    home) key="Home" ;;
+    end) key="End" ;;
+    insert) key="Insert" ;;
+    delete) key="Delete" ;;
+    up) key="Up" ;;
+    down) key="Down" ;;
+    left) key="Left" ;;
+    right) key="Right" ;;
+    page_up | prior) key="PgUp" ;;
+    page_down | next) key="PgDown" ;;
+    *)
+      if [[ "${#key}" -eq 1 ]]; then
+        key="${key^^}"
+      fi
+      ;;
+  esac
+
+  echo "${mods}${key}"
+}
+
+chezmoi_track() {
+  local file="$1"
+  if ! command -v chezmoi >/dev/null 2>&1; then
+    return
+  fi
+  if [[ ! -f "${file}" ]]; then
+    return
+  fi
+  local source_path
+  source_path=$(chezmoi source-path 2>/dev/null || echo "")
+  if [[ -z "${source_path}" || ! -d "${source_path}/.git" ]]; then
+    return
+  fi
+  if chezmoi add "${file}" >/dev/null 2>&1; then
+    log "Tracked ${file} in chezmoi."
+  else
+    log "Could not add ${file} to chezmoi."
+  fi
+}
+
 print_manual_instructions() {
   local name="$1"
   local reason="$2"
@@ -367,6 +440,85 @@ configure_xfce() {
   fi
 
   log "XFCE shortcut configured: ${SHORTCUT} -> thunar"
+
+  chezmoi_track "${XDG_CONFIG_HOME:-${HOME}/.config}/xfce4/xfconf/xfce-perchannel-xml/xfce4-keyboard-shortcuts.xml"
+}
+
+configure_kde() {
+  local major="$1"
+  local kwriteconfig="kwriteconfig${major}"
+  local kreadconfig="kreadconfig${major}"
+
+  if ! command -v "${kwriteconfig}" >/dev/null 2>&1 || ! command -v "${kreadconfig}" >/dev/null 2>&1; then
+    print_manual_instructions "KDE Plasma ${major}" "'${kwriteconfig}' was not found on this system."
+    return
+  fi
+
+  local data_home="${XDG_DATA_HOME:-${HOME}/.local/share}"
+  local apps_dir="${data_home}/applications"
+  local desktop_name="install-thunar-shortcut.desktop"
+  local desktop_file="${apps_dir}/${desktop_name}"
+  local config_home="${XDG_CONFIG_HOME:-${HOME}/.config}"
+  local shortcuts_file="${config_home}/kglobalshortcutsrc"
+  local accel_file="${config_home}/kglobalaccelrc"
+
+  mkdir -p "${apps_dir}"
+  cat > "${desktop_file}" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Thunar
+NoDisplay=true
+StartupNotify=false
+Exec=thunar
+X-KDE-GlobalAccel-CommandShortcut=true
+EOF
+
+  local kde_shortcut
+  kde_shortcut=$(convert_shortcut_to_kde "${SHORTCUT}")
+
+  "${kwriteconfig}" --file "${shortcuts_file}" --group "${desktop_name}" --key "_k_friendly_name" "Thunar"
+  "${kwriteconfig}" --file "${shortcuts_file}" --group "${desktop_name}" --key "_launch" "${kde_shortcut},none,Thunar"
+
+  local accel_file_modified=0
+  if [[ -f "${accel_file}" ]]; then
+    local allow_list
+    allow_list=$("${kreadconfig}" --file "${accel_file}" --group "General" --key "useAllowList" 2>/dev/null || echo "")
+    if [[ "${allow_list,,}" == "true" ]]; then
+      local existing_allowed
+      existing_allowed=$("${kreadconfig}" --file "${accel_file}" --group "AllowedShortcuts" --key "${desktop_name}" 2>/dev/null || echo "")
+      if [[ "${existing_allowed}" != *"_launch"* ]]; then
+        local new_allowed="_launch"
+        [[ -n "${existing_allowed}" ]] && new_allowed="${existing_allowed},_launch"
+        "${kwriteconfig}" --file "${accel_file}" --group "AllowedShortcuts" --key "${desktop_name}" "${new_allowed}"
+        log "Added Thunar shortcut to the KDE global shortcuts allow list."
+        accel_file_modified=1
+      fi
+    fi
+  fi
+
+  log "KDE Plasma ${major} shortcut configured: ${SHORTCUT} (${kde_shortcut}) -> thunar"
+
+  if [[ "${major}" == "5" ]]; then
+    if command -v kglobalaccel5 >/dev/null 2>&1 && command -v pkill >/dev/null 2>&1; then
+      pkill -x kglobalaccel5 >/dev/null 2>&1 || true
+      sleep 1
+      kglobalaccel5 >/dev/null 2>&1 &
+      disown
+      log "Restarted kglobalaccel5 to apply the new shortcut."
+    else
+      log "Could not automatically restart kglobalaccel5 (missing 'kglobalaccel5' or 'pkill')."
+      log "Log out and back in for the ${SHORTCUT} shortcut to take effect."
+    fi
+  else
+    log "Plasma 6 has no reliable way to reload global shortcuts without a new session."
+    log "Log out and back in (or reboot) for the ${SHORTCUT} shortcut to take effect."
+  fi
+
+  chezmoi_track "${desktop_file}"
+  chezmoi_track "${shortcuts_file}"
+  if [[ "${accel_file_modified}" -eq 1 ]]; then
+    chezmoi_track "${accel_file}"
+  fi
 }
 
 configure_shortcut() {
@@ -390,12 +542,113 @@ configure_shortcut() {
   elif [[ "${de_lower}" == *xfce* ]]; then
     configure_xfce
   elif [[ "${de_lower}" == *kde* || "${de_lower}" == *plasma* ]]; then
-    print_manual_instructions "KDE Plasma" "KDE Plasma's global shortcut configuration format is not consistent enough across Plasma 5 and 6 to be safely automated here."
+    local plasma_major
+    plasma_major=$(detect_plasma_major_version)
+    if [[ "${plasma_major}" == "5" || "${plasma_major}" == "6" ]]; then
+      configure_kde "${plasma_major}"
+    else
+      print_manual_instructions "KDE Plasma" "Could not detect the Plasma major version ('plasmashell --version' did not return a usable result)."
+    fi
   elif [[ "${de_lower}" == *gnome* ]]; then
     configure_gnome
   else
     print_manual_instructions "${de}" "This desktop environment is not recognized by this script."
   fi
+}
+
+confirm_configure_extras() {
+  if [[ ! -t 0 ]]; then
+    return 0
+  fi
+
+  local reply
+  read -r -p "[install-thunar] Set Thunar as the default file manager, configure a keyboard shortcut, and set your terminal emulator for 'Open Terminal Here'? [Y/n] " reply
+  case "${reply,,}" in
+    n | no) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+detect_terminal_emulator() {
+  if [[ -n "${THUNAR_TERMINAL:-}" ]]; then
+    echo "${THUNAR_TERMINAL}"
+    return
+  fi
+
+  if [[ -n "${TERMINAL:-}" ]] && command -v "${TERMINAL}" >/dev/null 2>&1; then
+    echo "${TERMINAL}"
+    return
+  fi
+
+  if command -v x-terminal-emulator >/dev/null 2>&1; then
+    echo "x-terminal-emulator"
+    return
+  fi
+
+  local -a candidates=(alacritty kitty wezterm foot konsole gnome-terminal xfce4-terminal terminator tilix urxvt xterm)
+  local c
+  for c in "${candidates[@]}"; do
+    if command -v "${c}" >/dev/null 2>&1; then
+      echo "${c}"
+      return
+    fi
+  done
+}
+
+configure_terminal() {
+  local terminal
+  terminal=$(detect_terminal_emulator)
+
+  if [[ -z "${terminal}" ]]; then
+    log "Could not detect a terminal emulator (set THUNAR_TERMINAL to override)."
+    log "Skipping automatic 'Open Terminal Here' configuration."
+    return
+  fi
+
+  if ! command -v "${terminal}" >/dev/null 2>&1; then
+    log "Terminal emulator '${terminal}' (from THUNAR_TERMINAL) is not on PATH."
+    log "Skipping automatic 'Open Terminal Here' configuration."
+    return
+  fi
+
+  local config_home="${XDG_CONFIG_HOME:-${HOME}/.config}"
+  local data_home="${XDG_DATA_HOME:-${HOME}/.local/share}"
+  local helpers_dir="${data_home}/xfce4/helpers"
+  local helper_id="custom-TerminalEmulator"
+  local helper_file="${helpers_dir}/${helper_id}.desktop"
+  local helpers_rc="${config_home}/xfce4/helpers.rc"
+
+  mkdir -p "${helpers_dir}"
+  cat > "${helper_file}" <<EOF
+[Desktop Entry]
+NoDisplay=true
+Version=1.0
+Encoding=UTF-8
+Type=X-XFCE-Helper
+X-XFCE-Category=TerminalEmulator
+X-XFCE-Commands=${terminal}
+X-XFCE-CommandsWithParameter=${terminal} -e %s
+Icon=utilities-terminal
+Name=${terminal}
+EOF
+
+  mkdir -p "${config_home}/xfce4"
+  touch "${helpers_rc}"
+  if grep -q '^TerminalEmulator=' "${helpers_rc}"; then
+    sed -i "s|^TerminalEmulator=.*|TerminalEmulator=${helper_id}|" "${helpers_rc}"
+  else
+    printf 'TerminalEmulator=%s\n' "${helper_id}" >> "${helpers_rc}"
+  fi
+  if grep -q '^TerminalEmulatorDismissed=' "${helpers_rc}"; then
+    sed -i "s|^TerminalEmulatorDismissed=.*|TerminalEmulatorDismissed=true|" "${helpers_rc}"
+  else
+    printf 'TerminalEmulatorDismissed=true\n' >> "${helpers_rc}"
+  fi
+
+  log "Thunar 'Open Terminal Here' configured to use: ${terminal}"
+
+  chezmoi_track "${helper_file}"
+  chezmoi_track "${helpers_rc}"
 }
 
 main() {
@@ -409,8 +662,13 @@ main() {
     exit 0
   fi
 
-  set_default_file_manager
-  configure_shortcut
+  if confirm_configure_extras; then
+    set_default_file_manager
+    configure_shortcut
+    configure_terminal
+  else
+    log "Skipping default file manager, keyboard shortcut, and terminal emulator configuration at your request."
+  fi
 
   log "Done."
 }
