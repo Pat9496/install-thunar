@@ -22,18 +22,20 @@ run_as_root() {
 }
 
 REBOOT_REQUIRED=0
+DIALOG_TOOL_REBOOT_REQUIRED=0
 RESET_CONFIG=0
 
 MANAGED_UCA_ACTIONS=(
   "Open Terminal Here"
-  "Copy Location"
-  "Copy Name"
+  "Copy Location Path"
+  "Copy File/Folder Name"
   "Extract Here"
   "Extract Here (No Subfolder)"
   "Compress Here"
   "Generate Checksum"
   "Verify Checksum"
   "Calculate Folder Size"
+  "Create Link"
 )
 
 SHORTCUT="${THUNAR_SHORTCUT:-<Super>e}"
@@ -630,6 +632,71 @@ detect_clipboard_tool() {
   fi
 }
 
+detect_dialog_tool() {
+  if command -v zenity >/dev/null 2>&1; then
+    echo "zenity"
+    return
+  fi
+  if command -v kdialog >/dev/null 2>&1; then
+    echo "kdialog"
+  fi
+}
+
+install_dialog_tool() {
+  if [[ -n "$(detect_dialog_tool)" ]]; then
+    return
+  fi
+
+  local de="${XDG_CURRENT_DESKTOP:-${DESKTOP_SESSION:-}}"
+  local de_lower="${de,,}"
+  local package="zenity"
+  if [[ "${de_lower}" == *kde* || "${de_lower}" == *plasma* ]]; then
+    package="kdialog"
+  fi
+
+  log "No dialog tool found. Attempting to install ${package}..."
+
+  if command -v rpm-ostree >/dev/null 2>&1; then
+    log "Detected rpm-ostree (Fedora Atomic / Silverblue / Kinoite / Bazzite). Layering ${package} package."
+    run_as_root rpm-ostree install -y "${package}"
+    log "${package} has been layered onto the system image."
+    log "A REBOOT IS REQUIRED before the 'Create Link' action will be usable."
+    DIALOG_TOOL_REBOOT_REQUIRED=1
+    return
+  elif command -v apt-get >/dev/null 2>&1; then
+    log "Detected apt-get (Debian/Ubuntu). Installing ${package}."
+    run_as_root apt-get update
+    run_as_root apt-get install -y "${package}"
+  elif command -v dnf >/dev/null 2>&1; then
+    log "Detected dnf (Fedora/RHEL/CentOS). Installing ${package}."
+    run_as_root dnf install -y "${package}"
+  elif command -v yum >/dev/null 2>&1; then
+    log "Detected yum (RHEL/CentOS). Installing ${package}."
+    run_as_root yum install -y "${package}"
+  elif command -v pacman >/dev/null 2>&1; then
+    log "Detected pacman (Arch). Installing ${package}."
+    run_as_root pacman -Syu --noconfirm "${package}"
+  elif command -v zypper >/dev/null 2>&1; then
+    log "Detected zypper (openSUSE). Installing ${package}."
+    run_as_root zypper --non-interactive install "${package}"
+  elif command -v apk >/dev/null 2>&1; then
+    log "Detected apk (Alpine). Installing ${package}."
+    run_as_root apk add "${package}"
+  elif command -v xbps-install >/dev/null 2>&1; then
+    log "Detected xbps-install (Void). Installing ${package}."
+    run_as_root xbps-install -Sy "${package}"
+  else
+    log "No supported package manager found to install ${package} automatically."
+    return
+  fi
+
+  if command -v "${package}" >/dev/null 2>&1; then
+    log "${package} installed successfully."
+  else
+    log "${package} installation appears to have failed; '${package}' is still not on PATH."
+  fi
+}
+
 detect_archive_tools() {
   local -a tools=(tar unzip 7z 7za 7zr unrar)
   local t
@@ -831,7 +898,7 @@ configure_uca_copy_location() {
   local command="$2"
 
   if [[ -z "${command}" ]]; then
-    log "No clipboard tool found (install xclip, xsel, or wl-clipboard); leaving Thunar's 'Copy Location' action untouched."
+    log "No clipboard tool found (install xclip, xsel, or wl-clipboard); leaving Thunar's 'Copy Location Path' action untouched."
     return
   fi
 
@@ -847,7 +914,7 @@ configure_uca_copy_location() {
   action_xml=$(cat <<EOF
 <action>
 	<icon>edit-copy</icon>
-	<name>Copy Location</name>
+	<name>Copy Location Path</name>
 	<submenu></submenu>
 	<unique-id>$(date +%s%N)-2</unique-id>
 	<command>${escaped_command}</command>
@@ -871,7 +938,7 @@ EOF
 ${action_xml}
 </actions>
 EOF
-    log "Created ${uca_file} with a 'Copy Location' action using: ${tool}"
+    log "Created ${uca_file} with a 'Copy Location Path' action using: ${tool}"
     chezmoi_track "${uca_file}"
     return
   fi
@@ -881,7 +948,7 @@ EOF
   if awk -v newcmd="${escaped_command}" '
       BEGIN { gsub(/&/, "\\\\&", newcmd) }
       /<action>/ { in_action = 1; found_name = 0; has_filetypes = 0; indent = "\t" }
-      in_action && /<name>Copy Location<\/name>/ { found_name = 1 }
+      in_action && /<name>Copy Location Path<\/name>/ { found_name = 1 }
       in_action && found_name && /<command>/ && !replaced {
         sub(/<command>.*<\/command>/, "<command>" newcmd "</command>")
         replaced = 1
@@ -905,7 +972,7 @@ EOF
       END { if (replaced) exit 0; else exit 1 }
     ' "${uca_file}" > "${tmpfile}"; then
     mv "${tmpfile}" "${uca_file}"
-    log "Updated Thunar's existing 'Copy Location' action to use: ${tool}"
+    log "Updated Thunar's existing 'Copy Location Path' action to use: ${tool}"
     chezmoi_track "${uca_file}"
     return
   fi
@@ -916,7 +983,7 @@ EOF
     tmpfile2=$(mktemp)
     awk -v action="${action_xml}" '/<\/actions>/ { print action } { print }' "${uca_file}" > "${tmpfile2}"
     mv "${tmpfile2}" "${uca_file}"
-    log "Added a new 'Copy Location' action to Thunar using: ${tool}"
+    log "Added a new 'Copy Location Path' action to Thunar using: ${tool}"
     chezmoi_track "${uca_file}"
   else
     log "${uca_file} exists but has no '</actions>' closing tag; leaving it untouched."
@@ -928,7 +995,7 @@ configure_uca_copy_name() {
   local command="$2"
 
   if [[ -z "${command}" ]]; then
-    log "No clipboard tool found (install xclip, xsel, or wl-clipboard); leaving Thunar's 'Copy Name' action untouched."
+    log "No clipboard tool found (install xclip, xsel, or wl-clipboard); leaving Thunar's 'Copy File/Folder Name' action untouched."
     return
   fi
 
@@ -944,7 +1011,7 @@ configure_uca_copy_name() {
   action_xml=$(cat <<EOF
 <action>
 	<icon>edit-copy</icon>
-	<name>Copy Name</name>
+	<name>Copy File/Folder Name</name>
 	<submenu></submenu>
 	<unique-id>$(date +%s%N)-6</unique-id>
 	<command>${escaped_command}</command>
@@ -968,7 +1035,7 @@ EOF
 ${action_xml}
 </actions>
 EOF
-    log "Created ${uca_file} with a 'Copy Name' action using: ${tool}"
+    log "Created ${uca_file} with a 'Copy File/Folder Name' action using: ${tool}"
     chezmoi_track "${uca_file}"
     return
   fi
@@ -978,7 +1045,7 @@ EOF
   if awk -v newcmd="${escaped_command}" '
       BEGIN { gsub(/&/, "\\\\&", newcmd) }
       /<action>/ { in_action = 1; found_name = 0; has_filetypes = 0; indent = "\t" }
-      in_action && /<name>Copy Name<\/name>/ { found_name = 1 }
+      in_action && /<name>Copy File\/Folder Name<\/name>/ { found_name = 1 }
       in_action && found_name && /<command>/ && !replaced {
         sub(/<command>.*<\/command>/, "<command>" newcmd "</command>")
         replaced = 1
@@ -1002,7 +1069,7 @@ EOF
       END { if (replaced) exit 0; else exit 1 }
     ' "${uca_file}" > "${tmpfile}"; then
     mv "${tmpfile}" "${uca_file}"
-    log "Updated Thunar's existing 'Copy Name' action to use: ${tool}"
+    log "Updated Thunar's existing 'Copy File/Folder Name' action to use: ${tool}"
     chezmoi_track "${uca_file}"
     return
   fi
@@ -1013,7 +1080,7 @@ EOF
     tmpfile2=$(mktemp)
     awk -v action="${action_xml}" '/<\/actions>/ { print action } { print }' "${uca_file}" > "${tmpfile2}"
     mv "${tmpfile2}" "${uca_file}"
-    log "Added a new 'Copy Name' action to Thunar using: ${tool}"
+    log "Added a new 'Copy File/Folder Name' action to Thunar using: ${tool}"
     chezmoi_track "${uca_file}"
   else
     log "${uca_file} exists but has no '</actions>' closing tag; leaving it untouched."
@@ -1182,7 +1249,7 @@ configure_uca_compress_here() {
   local uca_file="${uca_dir}/uca.xml"
 
   local script
-  script='dir=$(dirname "$1"); cd "$dir" || exit 1; names=(); for a in "$@"; do names+=("$(basename "$a")"); done; if [ "$#" -eq 1 ]; then base="${names[0]}"; else base=$(basename "$dir"); fi; if command -v tar >/dev/null 2>&1; then ext=".tar.gz"; elif command -v zip >/dev/null 2>&1; then ext=".zip"; else sevenzip=""; for c in 7z 7za 7zr; do if command -v "$c" >/dev/null 2>&1; then sevenzip="$c"; break; fi; done; [ -n "$sevenzip" ] || exit 1; ext=".7z"; fi; target="$base$ext"; i=0; while [ -e "$target" ]; do i=$((i + 1)); target="$base-$i$ext"; done; case "$ext" in .tar.gz) tar -czf "$target" -- "${names[@]}" ;; .zip) zip -rq "$target" -- "${names[@]}" ;; .7z) "$sevenzip" a -y "$target" -- "${names[@]}" ;; esac'
+  script='dir=$(dirname "$1"); cd "$dir" || exit 1; names=(); for a in "$@"; do names+=("$(basename "$a")"); done; if [ "$#" -eq 1 ]; then base="${names[0]}"; else base=$(basename "$dir"); fi; if command -v zip >/dev/null 2>&1; then ext=".zip"; elif command -v tar >/dev/null 2>&1; then ext=".tar.gz"; else sevenzip=""; for c in 7z 7za 7zr; do if command -v "$c" >/dev/null 2>&1; then sevenzip="$c"; break; fi; done; [ -n "$sevenzip" ] || exit 1; ext=".7z"; fi; target="$base$ext"; i=0; while [ -e "$target" ]; do i=$((i + 1)); target="$base-$i$ext"; done; case "$ext" in .tar.gz) tar -czf "$target" -- "${names[@]}" ;; .zip) zip -rq "$target" -- "${names[@]}" ;; .7z) "$sevenzip" a -y "$target" -- "${names[@]}" ;; esac'
   local command="bash -c '${script}' -- %F"
   local escaped_command
   escaped_command=$(escape_xml "${command}")
@@ -1485,6 +1552,80 @@ EOF
   fi
 }
 
+configure_uca_create_link() {
+  local config_home="${XDG_CONFIG_HOME:-${HOME}/.config}"
+  local uca_dir="${config_home}/Thunar"
+  local uca_file="${uca_dir}/uca.xml"
+
+  local script
+  script='dir="$1"; cd "$dir" || exit 1; mode_choice=""; if command -v zenity >/dev/null 2>&1; then mode_choice=$(zenity --list --radiolist --title="Create Link" --text="Create a relative or absolute symlink?" --column="" --column="Type" TRUE "Relative" FALSE "Absolute" 2>/dev/null); elif command -v kdialog >/dev/null 2>&1; then mode_choice=$(kdialog --radiolist "Create a relative or absolute symlink?" relative "Relative" absolute "Absolute" 2>/dev/null); else exit 1; fi; case "$mode_choice" in Relative|relative) mode=relative ;; Absolute|absolute) mode=absolute ;; *) exit 1 ;; esac; method=""; if command -v zenity >/dev/null 2>&1; then method=$(zenity --list --radiolist --title="Create Link" --text="How do you want to specify the link target?" --column="" --column="Method" TRUE "Type a path" FALSE "Browse for a file" FALSE "Browse for a folder" 2>/dev/null); elif command -v kdialog >/dev/null 2>&1; then method=$(kdialog --radiolist "How do you want to specify the link target?" type "Type a path" file "Browse for a file" folder "Browse for a folder" 2>/dev/null); fi; target=""; case "$method" in "Type a path"|type) if command -v zenity >/dev/null 2>&1; then target=$(zenity --entry --title="Create Link" --text="Enter the target path (file or folder):" 2>/dev/null); elif command -v kdialog >/dev/null 2>&1; then target=$(kdialog --inputbox "Enter the target path (file or folder):" 2>/dev/null); fi ;; "Browse for a file"|file) if command -v zenity >/dev/null 2>&1; then target=$(zenity --file-selection --title="Select target file" 2>/dev/null); elif command -v kdialog >/dev/null 2>&1; then target=$(kdialog --getopenfilename 2>/dev/null); fi ;; "Browse for a folder"|folder) if command -v zenity >/dev/null 2>&1; then target=$(zenity --file-selection --directory --title="Select target folder" 2>/dev/null); elif command -v kdialog >/dev/null 2>&1; then target=$(kdialog --getexistingdirectory 2>/dev/null); fi ;; *) exit 1 ;; esac; [ -n "$target" ] || exit 1; resolved=$(realpath -- "$target" 2>/dev/null) || exit 1; [ -e "$resolved" ] || exit 1; if [ "$mode" = relative ]; then linktarget=$(realpath --relative-to="$dir" -- "$resolved"); else linktarget="$resolved"; fi; name=$(basename "$resolved"); linkname="link to $name"; i=0; while [ -e "$linkname" ] || [ -L "$linkname" ]; do i=$((i + 1)); linkname="link to $name-$i"; done; ln -s -- "$linktarget" "$linkname"'
+  local command="bash -c '${script}' -- %f"
+  local escaped_command
+  escaped_command=$(escape_xml "${command}")
+
+  mkdir -p "${uca_dir}"
+
+  local action_xml
+  action_xml=$(cat <<EOF
+<action>
+	<icon>insert-link</icon>
+	<name>Create Link</name>
+	<submenu></submenu>
+	<unique-id>$(date +%s%N)-10</unique-id>
+	<command>${escaped_command}</command>
+	<description>Create a symbolic link in this folder pointing to a file or folder you choose</description>
+	<range></range>
+	<patterns>*</patterns>
+	<directories/>
+</action>
+EOF
+  )
+
+  if [[ ! -f "${uca_file}" ]]; then
+    cat > "${uca_file}" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<actions>
+${action_xml}
+</actions>
+EOF
+    log "Created ${uca_file} with a 'Create Link' action."
+    chezmoi_track "${uca_file}"
+    return
+  fi
+
+  local tmpfile
+  tmpfile=$(mktemp)
+  if awk -v newcmd="${escaped_command}" '
+      BEGIN { gsub(/&/, "\\\\&", newcmd) }
+      /<action>/ { in_action = 1 }
+      in_action && /<name>Create Link<\/name>/ { found_name = 1 }
+      in_action && found_name && /<command>/ && !replaced {
+        sub(/<command>.*<\/command>/, "<command>" newcmd "</command>")
+        replaced = 1
+      }
+      { print }
+      /<\/action>/ { in_action = 0; found_name = 0 }
+      END { if (replaced) exit 0; else exit 1 }
+    ' "${uca_file}" > "${tmpfile}"; then
+    mv "${tmpfile}" "${uca_file}"
+    log "Updated Thunar's existing 'Create Link' action."
+    chezmoi_track "${uca_file}"
+    return
+  fi
+
+  rm -f "${tmpfile}"
+  if grep -q '</actions>' "${uca_file}"; then
+    local tmpfile2
+    tmpfile2=$(mktemp)
+    awk -v action="${action_xml}" '/<\/actions>/ { print action } { print }' "${uca_file}" > "${tmpfile2}"
+    mv "${tmpfile2}" "${uca_file}"
+    log "Added a new 'Create Link' action to Thunar."
+    chezmoi_track "${uca_file}"
+  else
+    log "${uca_file} exists but has no '</actions>' closing tag; leaving it untouched."
+  fi
+}
+
 configure_terminal() {
   local terminal
   terminal=$(detect_terminal_emulator)
@@ -1551,7 +1692,7 @@ configure_copy_location() {
 
   if [[ -z "${tool}" ]]; then
     log "No clipboard tool found (install xclip, xsel, or wl-clipboard)."
-    log "Skipping 'Copy Location' configuration."
+    log "Skipping 'Copy Location Path' configuration."
     return
   fi
 
@@ -1570,7 +1711,7 @@ configure_copy_name() {
 
   if [[ -z "${tool}" ]]; then
     log "No clipboard tool found (install xclip, xsel, or wl-clipboard)."
-    log "Skipping 'Copy Name' configuration."
+    log "Skipping 'Copy File/Folder Name' configuration."
     return
   fi
 
@@ -1619,21 +1760,44 @@ configure_folder_size_action() {
   configure_uca_folder_size
 }
 
+configure_create_link() {
+  install_dialog_tool
+
+  local tool
+  tool=$(detect_dialog_tool)
+
+  if [[ -z "${tool}" ]]; then
+    log "No dialog tool found (install zenity or kdialog)."
+    log "Skipping 'Create Link' configuration."
+    return
+  fi
+
+  configure_uca_create_link
+}
+
 usage() {
   cat <<EOF
 Usage: $(basename "$0") [OPTIONS]
 
 Installs Thunar, sets it as the default file manager, configures a
 keyboard shortcut to open it, points its "Open Terminal Here"
-action at a terminal emulator, adds a "Copy Location" action
+action at a terminal emulator, adds a "Copy Location Path" action
 that copies a file or directory's full path to the clipboard, a
-"Copy Name" action that copies a file or directory's name to the
+"Copy File/Folder Name" action that copies a file or directory's name to the
 clipboard, and adds "Extract Here" and "Extract Here (No Subfolder)"
 actions for extracting archives, and a "Compress Here" action for
 compressing the selected files or folders into a new archive. Also
 adds "Generate Checksum" and "Verify Checksum" actions for creating
 and checking SHA-256 checksum files, and a "Calculate Folder Size"
-action for showing the total size of selected folders.
+action for showing the total size of selected folders. Adds a
+"Create Link" action, available on a selected folder or on empty
+space inside a folder, that prompts (via zenity or kdialog) for a
+relative or absolute symlink and a target file or folder to link
+to. If neither tool is found, this script will attempt to install
+zenity or kdialog automatically depending on the detected desktop
+environment (GNOME and other desktop environments get zenity, KDE
+Plasma gets kdialog; on Fedora Atomic systems this layers the
+package and requires a reboot before the action becomes usable).
 
 Options:
   --terminal <name>   Explicitly select the terminal emulator to use for
@@ -1712,6 +1876,11 @@ main() {
   configure_extract_actions
   configure_checksum_actions
   configure_folder_size_action
+  configure_create_link
+
+  if [[ "${DIALOG_TOOL_REBOOT_REQUIRED}" -eq 1 ]]; then
+    log "Reboot required: zenity was layered via rpm-ostree. After rebooting, re-run this script to finish adding the 'Create Link' action."
+  fi
 
   log "Done."
 }

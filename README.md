@@ -5,7 +5,7 @@
 ![Shell: Bash](https://img.shields.io/badge/Shell-Bash-4EAA25?logo=gnubash&logoColor=white)
 ![Platform: Linux](https://img.shields.io/badge/Platform-Linux-informational?logo=linux&logoColor=white)
 
-A shell script that installs [Thunar](https://docs.xfce.org/xfce/thunar/start), sets it as the default file manager, configures a keyboard shortcut to open it, points its "Open Terminal Here" action at your terminal emulator, and adds a "Copy Location" action to copy a file or folder's path to the clipboard — on any Linux distribution and any desktop environment.
+A shell script that installs [Thunar](https://docs.xfce.org/xfce/thunar/start), sets it as the default file manager, configures a keyboard shortcut to open it, points its "Open Terminal Here" action at your terminal emulator, and adds a "Copy Location Path" action to copy a file or folder's path to the clipboard — on any Linux distribution and any desktop environment.
 
 **English** | [Deutsch](README.de.md)
 
@@ -16,12 +16,13 @@ A shell script that installs [Thunar](https://docs.xfce.org/xfce/thunar/start), 
   - [Resetting custom actions](#resetting-custom-actions)
   - [Custom shortcut](#custom-shortcut)
   - [Terminal emulator for "Open Terminal Here"](#terminal-emulator-for-open-terminal-here)
-  - [Copy Location](#copy-location)
+  - [Copy Location Path](#copy-location-path)
   - [Extract archives](#extract-archives)
   - [Compress files](#compress-files)
-  - [Copy Name](#copy-name)
+  - [Copy File/Folder Name](#copy-filefolder-name)
   - [Checksums](#checksums)
   - [Calculate Folder Size](#calculate-folder-size)
+  - [Create Link](#create-link)
 - [Supported package managers](#supported-package-managers)
 - [Supported desktop environments (keyboard shortcut)](#supported-desktop-environments-keyboard-shortcut)
 - [chezmoi integration](#chezmoi-integration)
@@ -35,11 +36,12 @@ A shell script that installs [Thunar](https://docs.xfce.org/xfce/thunar/start), 
 2. Sets Thunar as the default handler for directories (`xdg-mime default thunar.desktop inode/directory`).
 3. Detects your desktop environment and configures a keyboard shortcut to launch Thunar.
 4. Configures Thunar's "Open Terminal Here" action to use a detected (or explicitly chosen) terminal emulator.
-5. Adds a "Copy Location" action to Thunar that copies the full path of the selected file or folder to the clipboard.
+5. Adds a "Copy Location Path" action to Thunar that copies the full path of the selected file or folder to the clipboard.
 6. Adds "Extract Here", "Extract Here (No Subfolder)", and "Compress Here" actions to Thunar for extracting archives safely, extracting in place, or compressing files and folders into a new archive.
-7. Adds a "Copy Name" action to Thunar that copies the file or folder name (without the path) to the clipboard.
+7. Adds a "Copy File/Folder Name" action to Thunar that copies the file or folder name (without the path) to the clipboard.
 8. Adds "Generate Checksum" and "Verify Checksum" actions to Thunar for creating and verifying SHA-256 checksums of files.
 9. Adds a "Calculate Folder Size" action to Thunar to display the total recursive size of selected folders.
+10. Adds a "Create Link" action to Thunar that creates a symbolic link in a folder pointing to a file or folder you choose, with options for relative or absolute symlink paths.
 
 ## Usage
 
@@ -49,7 +51,7 @@ A shell script that installs [Thunar](https://docs.xfce.org/xfce/thunar/start), 
 
 The script installs packages with `sudo` only when required; the rest runs as your normal user.
 
-After installing Thunar, if the script is running in an interactive terminal it asks whether to set Thunar as the default file manager and configure the keyboard shortcut (`[Y/n]`, defaults to yes). The configuration of the terminal emulator for "Open Terminal Here", the "Copy Location" custom action, and the archive extraction actions always run, regardless of how you answer this prompt. When run non-interactively (e.g. `curl ... | bash`, or with stdin piped/redirected), it skips the prompt and applies the default (yes) to those two steps, while always running the terminal emulator, Copy Location, and archive extraction configuration.
+After installing Thunar, if the script is running in an interactive terminal it asks whether to set Thunar as the default file manager and configure the keyboard shortcut (`[Y/n]`, defaults to yes). The configuration of the terminal emulator for "Open Terminal Here", the "Copy Location Path" custom action, and the archive extraction actions always run, regardless of how you answer this prompt. When run non-interactively (e.g. `curl ... | bash`, or with stdin piped/redirected), it skips the prompt and applies the default (yes) to those two steps, while always running the terminal emulator, Copy Location Path, and archive extraction configuration.
 
 ### Resetting custom actions
 
@@ -59,7 +61,7 @@ If Thunar's custom actions configuration has become corrupted or broken, use the
 ./install-thunar.sh --resetconfig
 ```
 
-This removes the 9 custom actions that the script manages — "Open Terminal Here", "Copy Location", "Copy Name", "Extract Here", "Extract Here (No Subfolder)", "Compress Here", "Generate Checksum", "Verify Checksum", and "Calculate Folder Size" — from `~/.config/Thunar/uca.xml` (if they are present), then runs the script normally to recreate them fresh. It only removes actions by name that this script manages; any custom actions you have added yourself are left untouched. The keyboard shortcut configuration for your desktop environment is not affected.
+This removes the 10 custom actions that the script manages — "Open Terminal Here", "Copy Location Path", "Copy File/Folder Name", "Extract Here", "Extract Here (No Subfolder)", "Compress Here", "Generate Checksum", "Verify Checksum", "Calculate Folder Size", and "Create Link" — from `~/.config/Thunar/uca.xml` (if they are present), then runs the script normally to recreate them fresh. It only removes actions by name that this script manages; any custom actions you have added yourself are left untouched. The keyboard shortcut configuration for your desktop environment is not affected.
 
 This flag is safe to use even if `uca.xml` doesn't exist yet or none of the managed actions are present — it will simply note that there's nothing to reset and continue.
 
@@ -97,9 +99,9 @@ This direct rewrite is only done for terminals with a known "start in this direc
 
 If no terminal emulator can be found, this step is skipped entirely and nothing is touched.
 
-### Copy Location
+### Copy Location Path
 
-The script also adds a "Copy Location" custom action to Thunar's right-click menu, for both files and folders. It copies the full path (including the filename) to the clipboard as plain text, so it can be pasted elsewhere.
+The script also adds a "Copy Location Path" custom action to Thunar's right-click menu, for both files and folders. It copies the full path (including the filename) to the clipboard as plain text, so it can be pasted elsewhere.
 
 To do this, it picks a clipboard tool, in order: `wl-copy` (if a Wayland session is detected via `$WAYLAND_DISPLAY` and `wl-copy` is on `PATH`), then `xclip`, then `xsel`, then `wl-copy` again as a last resort even without a detected Wayland session. If none of `wl-copy`, `xclip`, or `xsel` are found, this step is skipped entirely and nothing is touched — this script does not install a clipboard tool for you, the same way it doesn't install a terminal emulator for you.
 
@@ -117,19 +119,19 @@ If none of those tools are found, this step is skipped entirely and nothing is t
 
 The script also adds a "Compress Here" custom action to Thunar's right-click menu for compressing files and folders into new archives. The action description in Thunar reads "Compress the selected files or folders into a new archive".
 
-When you right-click one or more files or folders and select "Compress Here", the script compresses them into a single archive in the same directory. If exactly one item is selected, the archive is named after that item (for example, selecting a folder named `Photos` creates `Photos.tar.gz` next to it; selecting a file named `notes.txt` creates `notes.txt.tar.gz`). If multiple items are selected, the archive is named after the containing folder.
+When you right-click one or more files or folders and select "Compress Here", the script compresses them into a single archive in the same directory. If exactly one item is selected, the archive is named after that item (for example, selecting a folder named `Photos` creates `Photos.zip` next to it; selecting a file named `notes.txt` creates `notes.txt.zip`). If multiple items are selected, the archive is named after the containing folder.
 
-The script chooses the archive format based on whichever compression tool is available, in priority order: `tar` (produces `.tar.gz`), `zip` (produces `.zip`), or one of `7z`, `7za`, `7zr` (produces `.7z`). If none of these tools are found, this action is not added.
+The script chooses the archive format based on whichever compression tool is available, in priority order: `zip` (produces `.zip`), `tar` (produces `.tar.gz`), or one of `7z`, `7za`, `7zr` (produces `.7z`). If none of these tools are found, this action is not added.
 
 The script never overwrites an existing archive. If the target name already exists, it tries `name-1.ext`, `name-2.ext`, and so on until it finds a free name.
 
 The "Compress Here" action is gated by the same tool detection as the extract actions (see [Extract archives](#extract-archives) above): if none of the required tools are found, none of the three archive actions — "Extract Here", "Extract Here (No Subfolder)", or "Compress Here" — are configured, and nothing is touched.
 
-### Copy Name
+### Copy File/Folder Name
 
-The script also adds a "Copy Name" custom action to Thunar's right-click menu for both files and folders. It copies the file or folder name (without the path) to the clipboard as plain text, so it can be pasted elsewhere.
+The script also adds a "Copy File/Folder Name" custom action to Thunar's right-click menu for both files and folders. It copies the file or folder name (without the path) to the clipboard as plain text, so it can be pasted elsewhere.
 
-Like the "Copy Location" action, it uses the same clipboard tool detection: `wl-copy` (if a Wayland session is detected), then `xclip`, then `xsel`, then `wl-copy` again as a last resort. If none of these tools are found, this step is skipped entirely.
+Like the "Copy Location Path" action, it uses the same clipboard tool detection: `wl-copy` (if a Wayland session is detected), then `xclip`, then `xsel`, then `wl-copy` again as a last resort. If none of these tools are found, this step is skipped entirely.
 
 ### Checksums
 
@@ -147,6 +149,23 @@ The script also adds a "Calculate Folder Size" custom action to Thunar's right-c
 
 If `du` is not found, this action is not added.
 
+### Create Link
+
+The script also adds a "Create Link" custom action to Thunar's right-click menu for folders. It creates a symbolic link in the folder (or the empty space of the folder you right-click in) pointing to a file or folder you choose. The action description in Thunar reads "Create a symbolic link in this folder pointing to a file or folder you choose".
+
+When you right-click a folder (or empty space within a folder) and select "Create Link", the script prompts you twice, using whichever of `zenity` or `kdialog` is available:
+
+1. Whether to create a relative or an absolute symlink. A relative symlink works from within that folder and uses a path relative to it; an absolute symlink includes the full filesystem path and works from anywhere.
+2. How to specify the link's target: type a path manually, or browse for a file, or browse for a folder.
+
+If you type a path, relative paths are resolved relative to the destination folder (the one you right-clicked in); absolute paths are used as-is. Either way, the target path must exist before the symlink is created. Relative mode computes a genuine relative path from the destination folder to the target using `realpath --relative-to`, which can point anywhere in the filesystem.
+
+The symlink is created with the name `link to <target-name>` (matching Thunar's own native "Make Link" naming convention). If that name is already taken, the script tries `link to <target-name>-1`, `link to <target-name>-2`, and so on until it finds a free name.
+
+This action complements Thunar's own native "Make Link" and "Paste Link" features (right-click → Make Link, or Copy then Paste Link), which only ever create absolute-path symlinks. Use this custom action when you specifically want a relative-path symlink or want to link to a target without first copying it.
+
+If neither `zenity` nor `kdialog` is found, the script automatically installs one (`kdialog` on KDE Plasma, `zenity` on others) using the same package-manager detection as the Thunar install. On Fedora Atomic systems (detected via `rpm-ostree`), this layers the package and requires a reboot; re-run the script after rebooting to add the action. On other package managers, the install happens immediately. If the install fails or no supported package manager is found, this step is skipped gracefully and nothing is touched.
+
 ## Supported package managers
 
 `rpm-ostree`, `apt-get`, `dnf`, `yum`, `pacman`, `zypper`, `apk`, `xbps-install`.
@@ -159,7 +178,7 @@ On KDE Plasma 5, the shortcut is applied immediately. On KDE Plasma 6, there is 
 
 ## chezmoi integration
 
-If [chezmoi](https://www.chezmoi.io/) is installed and already initialized (its source directory is a git repository), the script adds the configuration files it wrote or modified — the KDE shortcut files, the XFCE keyboard-shortcuts XML, Thunar's `uca.xml` (which holds the "Open Terminal Here", "Copy Location", "Extract Here", "Extract Here (No Subfolder)", "Compress Here", "Copy Name", "Generate Checksum", "Verify Checksum", and "Calculate Folder Size" custom actions), or the terminal-emulator helper files (`~/.local/share/xfce4/helpers/custom-TerminalEmulator.desktop` and `~/.config/xfce4/helpers.rc`) — to your chezmoi source state. This is skipped entirely if chezmoi isn't installed or hasn't been initialized, and it never touches GNOME/Cinnamon/MATE shortcuts since those live in the dconf database rather than a file.
+If [chezmoi](https://www.chezmoi.io/) is installed and already initialized (its source directory is a git repository), the script adds the configuration files it wrote or modified — the KDE shortcut files, the XFCE keyboard-shortcuts XML, Thunar's `uca.xml` (which holds the "Open Terminal Here", "Copy Location Path", "Extract Here", "Extract Here (No Subfolder)", "Compress Here", "Copy File/Folder Name", "Generate Checksum", "Verify Checksum", "Calculate Folder Size", and "Create Link" custom actions), or the terminal-emulator helper files (`~/.local/share/xfce4/helpers/custom-TerminalEmulator.desktop` and `~/.config/xfce4/helpers.rc`) — to your chezmoi source state. This is skipped entirely if chezmoi isn't installed or hasn't been initialized, and it never touches GNOME/Cinnamon/MATE shortcuts since those live in the dconf database rather than a file.
 
 ## Contributing
 
