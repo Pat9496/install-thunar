@@ -617,6 +617,17 @@ detect_clipboard_tool() {
   fi
 }
 
+detect_archive_tools() {
+  local -a tools=(tar unzip 7z 7za 7zr unrar)
+  local t
+  for t in "${tools[@]}"; do
+    if command -v "${t}" >/dev/null 2>&1; then
+      echo "found"
+      return
+    fi
+  done
+}
+
 escape_xml() {
   local s="$1"
   s="${s//&/&amp;}"
@@ -822,6 +833,160 @@ EOF
   fi
 }
 
+configure_uca_extract_here() {
+  local config_home="${XDG_CONFIG_HOME:-${HOME}/.config}"
+  local uca_dir="${config_home}/Thunar"
+  local uca_file="${uca_dir}/uca.xml"
+
+  local script
+  script='f="$1"; dir=$(dirname "$f"); base=$(basename "$f"); cd "$dir" || exit 1; case "$base" in *.tar.gz|*.tgz|*.tar.bz2|*.tbz2|*.tar.xz|*.txz|*.tar.zst) name="${base%.*}"; name="${name%.*}"; command -v tar >/dev/null 2>&1 || exit 1; mkdir -p "$name" && tar -xf "$base" -C "$name" ;; *.tar) name="${base%.tar}"; command -v tar >/dev/null 2>&1 || exit 1; mkdir -p "$name" && tar -xf "$base" -C "$name" ;; *.zip) name="${base%.zip}"; command -v unzip >/dev/null 2>&1 || exit 1; mkdir -p "$name" && unzip -o "$base" -d "$name" ;; *.7z) name="${base%.7z}"; sevenzip=""; for c in 7z 7za 7zr; do if command -v "$c" >/dev/null 2>&1; then sevenzip="$c"; break; fi; done; [ -n "$sevenzip" ] || exit 1; mkdir -p "$name" && "$sevenzip" x "$base" -o"$name" -y ;; *.rar) name="${base%.rar}"; command -v unrar >/dev/null 2>&1 || exit 1; mkdir -p "$name" && unrar x -y "$base" "$name/" ;; *) exit 1 ;; esac'
+  local command="bash -c '${script}' -- %f"
+  local escaped_command
+  escaped_command=$(escape_xml "${command}")
+
+  mkdir -p "${uca_dir}"
+
+  local action_xml
+  action_xml=$(cat <<EOF
+<action>
+	<icon>archive-extract</icon>
+	<name>Extract Here</name>
+	<submenu></submenu>
+	<unique-id>$(date +%s%N)-3</unique-id>
+	<command>${escaped_command}</command>
+	<description>Extract the archive into a new folder named after it</description>
+	<range></range>
+	<patterns>*.zip;*.tar;*.tar.gz;*.tgz;*.tar.bz2;*.tbz2;*.tar.xz;*.txz;*.tar.zst;*.7z;*.rar</patterns>
+	<audio-files/>
+	<image-files/>
+	<other-files/>
+	<text-files/>
+	<video-files/>
+</action>
+EOF
+  )
+
+  if [[ ! -f "${uca_file}" ]]; then
+    cat > "${uca_file}" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<actions>
+${action_xml}
+</actions>
+EOF
+    log "Created ${uca_file} with an 'Extract Here' action."
+    chezmoi_track "${uca_file}"
+    return
+  fi
+
+  local tmpfile
+  tmpfile=$(mktemp)
+  if awk -v newcmd="${escaped_command}" '
+      /<action>/ { in_action = 1 }
+      in_action && /<name>Extract Here<\/name>/ { found_name = 1 }
+      in_action && found_name && /<command>/ && !replaced {
+        sub(/<command>.*<\/command>/, "<command>" newcmd "</command>")
+        replaced = 1
+      }
+      { print }
+      /<\/action>/ { in_action = 0; found_name = 0 }
+      END { if (replaced) exit 0; else exit 1 }
+    ' "${uca_file}" > "${tmpfile}"; then
+    mv "${tmpfile}" "${uca_file}"
+    log "Updated Thunar's existing 'Extract Here' action."
+    chezmoi_track "${uca_file}"
+    return
+  fi
+
+  rm -f "${tmpfile}"
+  if grep -q '</actions>' "${uca_file}"; then
+    local tmpfile2
+    tmpfile2=$(mktemp)
+    awk -v action="${action_xml}" '/<\/actions>/ { print action } { print }' "${uca_file}" > "${tmpfile2}"
+    mv "${tmpfile2}" "${uca_file}"
+    log "Added a new 'Extract Here' action to Thunar."
+    chezmoi_track "${uca_file}"
+  else
+    log "${uca_file} exists but has no '</actions>' closing tag; leaving it untouched."
+  fi
+}
+
+configure_uca_extract_flatten() {
+  local config_home="${XDG_CONFIG_HOME:-${HOME}/.config}"
+  local uca_dir="${config_home}/Thunar"
+  local uca_file="${uca_dir}/uca.xml"
+
+  local script
+  script='f="$1"; dir=$(dirname "$f"); base=$(basename "$f"); cd "$dir" || exit 1; case "$base" in *.tar.gz|*.tgz|*.tar.bz2|*.tbz2|*.tar.xz|*.txz|*.tar.zst|*.tar) command -v tar >/dev/null 2>&1 || exit 1; tar -xf "$base" ;; *.zip) command -v unzip >/dev/null 2>&1 || exit 1; unzip -o "$base" ;; *.7z) sevenzip=""; for c in 7z 7za 7zr; do if command -v "$c" >/dev/null 2>&1; then sevenzip="$c"; break; fi; done; [ -n "$sevenzip" ] || exit 1; "$sevenzip" x "$base" -y ;; *.rar) command -v unrar >/dev/null 2>&1 || exit 1; unrar x -y "$base" ;; *) exit 1 ;; esac'
+  local command="bash -c '${script}' -- %f"
+  local escaped_command
+  escaped_command=$(escape_xml "${command}")
+
+  mkdir -p "${uca_dir}"
+
+  local action_xml
+  action_xml=$(cat <<EOF
+<action>
+	<icon>archive-extract</icon>
+	<name>Extract Here (No Subfolder)</name>
+	<submenu></submenu>
+	<unique-id>$(date +%s%N)-4</unique-id>
+	<command>${escaped_command}</command>
+	<description>Extract the archive directly into the current directory</description>
+	<range></range>
+	<patterns>*.zip;*.tar;*.tar.gz;*.tgz;*.tar.bz2;*.tbz2;*.tar.xz;*.txz;*.tar.zst;*.7z;*.rar</patterns>
+	<audio-files/>
+	<image-files/>
+	<other-files/>
+	<text-files/>
+	<video-files/>
+</action>
+EOF
+  )
+
+  if [[ ! -f "${uca_file}" ]]; then
+    cat > "${uca_file}" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<actions>
+${action_xml}
+</actions>
+EOF
+    log "Created ${uca_file} with an 'Extract Here (No Subfolder)' action."
+    chezmoi_track "${uca_file}"
+    return
+  fi
+
+  local tmpfile
+  tmpfile=$(mktemp)
+  if awk -v newcmd="${escaped_command}" '
+      /<action>/ { in_action = 1 }
+      in_action && /<name>Extract Here \(No Subfolder\)<\/name>/ { found_name = 1 }
+      in_action && found_name && /<command>/ && !replaced {
+        sub(/<command>.*<\/command>/, "<command>" newcmd "</command>")
+        replaced = 1
+      }
+      { print }
+      /<\/action>/ { in_action = 0; found_name = 0 }
+      END { if (replaced) exit 0; else exit 1 }
+    ' "${uca_file}" > "${tmpfile}"; then
+    mv "${tmpfile}" "${uca_file}"
+    log "Updated Thunar's existing 'Extract Here (No Subfolder)' action."
+    chezmoi_track "${uca_file}"
+    return
+  fi
+
+  rm -f "${tmpfile}"
+  if grep -q '</actions>' "${uca_file}"; then
+    local tmpfile2
+    tmpfile2=$(mktemp)
+    awk -v action="${action_xml}" '/<\/actions>/ { print action } { print }' "${uca_file}" > "${tmpfile2}"
+    mv "${tmpfile2}" "${uca_file}"
+    log "Added a new 'Extract Here (No Subfolder)' action to Thunar."
+    chezmoi_track "${uca_file}"
+  else
+    log "${uca_file} exists but has no '</actions>' closing tag; leaving it untouched."
+  fi
+}
+
 configure_terminal() {
   local terminal
   terminal=$(detect_terminal_emulator)
@@ -901,14 +1066,30 @@ configure_copy_location() {
   configure_uca_copy_location "${tool}" "${copy_command}"
 }
 
+configure_extract_actions() {
+  local found
+  found=$(detect_archive_tools)
+
+  if [[ -z "${found}" ]]; then
+    log "No archive extraction tool found (install tar, unzip, 7z, or unrar)."
+    log "Skipping 'Extract Here' actions."
+    return
+  fi
+
+  configure_uca_extract_here
+  configure_uca_extract_flatten
+}
+
 usage() {
   cat <<EOF
 Usage: $(basename "$0") [OPTIONS]
 
 Installs Thunar, sets it as the default file manager, configures a
 keyboard shortcut to open it, points its "Open Terminal Here"
-action at a terminal emulator, and adds a "Copy Location" action
-that copies a file or directory's full path to the clipboard.
+action at a terminal emulator, adds a "Copy Location" action
+that copies a file or directory's full path to the clipboard, and
+adds "Extract Here" and "Extract Here (No Subfolder)" actions for
+extracting archives.
 
 Options:
   --terminal <name>   Explicitly select the terminal emulator to use for
@@ -973,6 +1154,7 @@ main() {
 
   configure_terminal
   configure_copy_location
+  configure_extract_actions
 
   log "Done."
 }

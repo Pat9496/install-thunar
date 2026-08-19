@@ -7,6 +7,23 @@
 
 A shell script that installs [Thunar](https://docs.xfce.org/xfce/thunar/start), sets it as the default file manager, configures a keyboard shortcut to open it, points its "Open Terminal Here" action at your terminal emulator, and adds a "Copy Location" action to copy a file or folder's path to the clipboard — on any Linux distribution and any desktop environment.
 
+**English** | [Deutsch](README.de.md)
+
+## Table of Contents
+
+- [What it does](#what-it-does)
+- [Usage](#usage)
+  - [Custom shortcut](#custom-shortcut)
+  - [Terminal emulator for "Open Terminal Here"](#terminal-emulator-for-open-terminal-here)
+  - [Copy Location](#copy-location)
+  - [Extract archives](#extract-archives)
+- [Supported package managers](#supported-package-managers)
+- [Supported desktop environments (keyboard shortcut)](#supported-desktop-environments-keyboard-shortcut)
+- [chezmoi integration](#chezmoi-integration)
+- [Contributing](#contributing)
+- [License](#license)
+- [Credits](#credits)
+
 ## What it does
 
 1. Detects your package manager and installs Thunar if it isn't already present (including Fedora Atomic variants such as Silverblue, Kinoite, and Bazzite via `rpm-ostree`).
@@ -14,6 +31,7 @@ A shell script that installs [Thunar](https://docs.xfce.org/xfce/thunar/start), 
 3. Detects your desktop environment and configures a keyboard shortcut to launch Thunar.
 4. Configures Thunar's "Open Terminal Here" action to use a detected (or explicitly chosen) terminal emulator.
 5. Adds a "Copy Location" action to Thunar that copies the full path of the selected file or folder to the clipboard.
+6. Adds "Extract Here" and "Extract Here (No Subfolder)" actions to Thunar for extracting archives safely or in place.
 
 ## Usage
 
@@ -23,7 +41,7 @@ A shell script that installs [Thunar](https://docs.xfce.org/xfce/thunar/start), 
 
 The script installs packages with `sudo` only when required; the rest runs as your normal user.
 
-After installing Thunar, if the script is running in an interactive terminal it asks whether to set Thunar as the default file manager and configure the keyboard shortcut (`[Y/n]`, defaults to yes). The configuration of the terminal emulator for "Open Terminal Here" and the "Copy Location" custom action always run, regardless of how you answer this prompt. When run non-interactively (e.g. `curl ... | bash`, or with stdin piped/redirected), it skips the prompt and applies the default (yes) to those two steps, while always running the terminal emulator and Copy Location configuration.
+After installing Thunar, if the script is running in an interactive terminal it asks whether to set Thunar as the default file manager and configure the keyboard shortcut (`[Y/n]`, defaults to yes). The configuration of the terminal emulator for "Open Terminal Here", the "Copy Location" custom action, and the archive extraction actions always run, regardless of how you answer this prompt. When run non-interactively (e.g. `curl ... | bash`, or with stdin piped/redirected), it skips the prompt and applies the default (yes) to those two steps, while always running the terminal emulator, Copy Location, and archive extraction configuration.
 
 ### Custom shortcut
 
@@ -59,6 +77,16 @@ The script also adds a "Copy Location" custom action to Thunar's right-click men
 
 To do this, it picks a clipboard tool, in order: `wl-copy` (if a Wayland session is detected via `$WAYLAND_DISPLAY` and `wl-copy` is on `PATH`), then `xclip`, then `xsel`, then `wl-copy` again as a last resort even without a detected Wayland session. If none of `wl-copy`, `xclip`, or `xsel` are found, this step is skipped entirely and nothing is touched — this script does not install a clipboard tool for you, the same way it doesn't install a terminal emulator for you.
 
+### Extract archives
+
+The script also adds two archive extraction actions to Thunar's right-click menu: "Extract Here" and "Extract Here (No Subfolder)". The "Extract Here" action extracts an archive into a new subfolder named after the archive (e.g. extracting `foo.zip` creates `./foo/` and extracts its contents into it), which is the safe default that never overwrites existing files. The "Extract Here (No Subfolder)" action extracts directly into the current directory, flattening the archive's contents in place, which can overwrite existing files with the same names.
+
+Both actions appear in Thunar's right-click menu only for recognized archive files: `.zip`, `.tar`, `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz2`, `.tar.xz`/`.txz`, `.tar.zst`, `.7z`, and `.rar`.
+
+The script detects and uses whichever of `tar`, `unzip`, `7z`, `7za`, `7zr`, or `unrar` is already installed and appropriate for the archive's format. This script does not install any archive tool for you — it uses whatever extraction tools are already on your system, the same philosophy as the terminal emulator and clipboard tool.
+
+If none of those tools are found, this step is skipped entirely and nothing is touched.
+
 ## Supported package managers
 
 `rpm-ostree`, `apt-get`, `dnf`, `yum`, `pacman`, `zypper`, `apk`, `xbps-install`.
@@ -71,7 +99,7 @@ On KDE Plasma 5, the shortcut is applied immediately. On KDE Plasma 6, there is 
 
 ## chezmoi integration
 
-If [chezmoi](https://www.chezmoi.io/) is installed and already initialized (its source directory is a git repository), the script adds the configuration files it wrote or modified — the KDE shortcut files, the XFCE keyboard-shortcuts XML, Thunar's `uca.xml` (which holds both the "Open Terminal Here" and "Copy Location" custom actions), or the terminal-emulator helper files (`~/.local/share/xfce4/helpers/custom-TerminalEmulator.desktop` and `~/.config/xfce4/helpers.rc`) — to your chezmoi source state. This is skipped entirely if chezmoi isn't installed or hasn't been initialized, and it never touches GNOME/Cinnamon/MATE shortcuts since those live in the dconf database rather than a file.
+If [chezmoi](https://www.chezmoi.io/) is installed and already initialized (its source directory is a git repository), the script adds the configuration files it wrote or modified — the KDE shortcut files, the XFCE keyboard-shortcuts XML, Thunar's `uca.xml` (which holds the "Open Terminal Here", "Copy Location", "Extract Here", and "Extract Here (No Subfolder)" custom actions), or the terminal-emulator helper files (`~/.local/share/xfce4/helpers/custom-TerminalEmulator.desktop` and `~/.config/xfce4/helpers.rc`) — to your chezmoi source state. This is skipped entirely if chezmoi isn't installed or hasn't been initialized, and it never touches GNOME/Cinnamon/MATE shortcuts since those live in the dconf database rather than a file.
 
 ## Contributing
 
