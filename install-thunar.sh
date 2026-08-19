@@ -755,6 +755,11 @@ configure_uca_copy_location() {
 	<range></range>
 	<patterns>*</patterns>
 	<directories/>
+	<audio-files/>
+	<image-files/>
+	<other-files/>
+	<text-files/>
+	<video-files/>
 </action>
 EOF
   )
@@ -774,11 +779,25 @@ EOF
   local tmpfile
   tmpfile=$(mktemp)
   if awk -v newcmd="${escaped_command}" '
-      /<action>/ { in_action = 1 }
+      /<action>/ { in_action = 1; found_name = 0; has_filetypes = 0; indent = "\t" }
       in_action && /<name>Copy Location<\/name>/ { found_name = 1 }
       in_action && found_name && /<command>/ && !replaced {
         sub(/<command>.*<\/command>/, "<command>" newcmd "</command>")
         replaced = 1
+      }
+      in_action && found_name && /<directories\/>/ {
+        indent = $0
+        sub(/<directories\/>.*/, "", indent)
+      }
+      in_action && found_name && /<(audio-files|image-files|other-files|text-files|video-files)\/>/ {
+        has_filetypes = 1
+      }
+      in_action && found_name && /<\/action>/ && !has_filetypes {
+        print indent "<audio-files/>"
+        print indent "<image-files/>"
+        print indent "<other-files/>"
+        print indent "<text-files/>"
+        print indent "<video-files/>"
       }
       { print }
       /<\/action>/ { in_action = 0; found_name = 0 }
