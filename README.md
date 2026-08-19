@@ -13,10 +13,15 @@ A shell script that installs [Thunar](https://docs.xfce.org/xfce/thunar/start), 
 
 - [What it does](#what-it-does)
 - [Usage](#usage)
+  - [Resetting custom actions](#resetting-custom-actions)
   - [Custom shortcut](#custom-shortcut)
   - [Terminal emulator for "Open Terminal Here"](#terminal-emulator-for-open-terminal-here)
   - [Copy Location](#copy-location)
   - [Extract archives](#extract-archives)
+  - [Compress files](#compress-files)
+  - [Copy Name](#copy-name)
+  - [Checksums](#checksums)
+  - [Calculate Folder Size](#calculate-folder-size)
 - [Supported package managers](#supported-package-managers)
 - [Supported desktop environments (keyboard shortcut)](#supported-desktop-environments-keyboard-shortcut)
 - [chezmoi integration](#chezmoi-integration)
@@ -31,7 +36,10 @@ A shell script that installs [Thunar](https://docs.xfce.org/xfce/thunar/start), 
 3. Detects your desktop environment and configures a keyboard shortcut to launch Thunar.
 4. Configures Thunar's "Open Terminal Here" action to use a detected (or explicitly chosen) terminal emulator.
 5. Adds a "Copy Location" action to Thunar that copies the full path of the selected file or folder to the clipboard.
-6. Adds "Extract Here" and "Extract Here (No Subfolder)" actions to Thunar for extracting archives safely or in place.
+6. Adds "Extract Here", "Extract Here (No Subfolder)", and "Compress Here" actions to Thunar for extracting archives safely, extracting in place, or compressing files and folders into a new archive.
+7. Adds a "Copy Name" action to Thunar that copies the file or folder name (without the path) to the clipboard.
+8. Adds "Generate Checksum" and "Verify Checksum" actions to Thunar for creating and verifying SHA-256 checksums of files.
+9. Adds a "Calculate Folder Size" action to Thunar to display the total recursive size of selected folders.
 
 ## Usage
 
@@ -42,6 +50,24 @@ A shell script that installs [Thunar](https://docs.xfce.org/xfce/thunar/start), 
 The script installs packages with `sudo` only when required; the rest runs as your normal user.
 
 After installing Thunar, if the script is running in an interactive terminal it asks whether to set Thunar as the default file manager and configure the keyboard shortcut (`[Y/n]`, defaults to yes). The configuration of the terminal emulator for "Open Terminal Here", the "Copy Location" custom action, and the archive extraction actions always run, regardless of how you answer this prompt. When run non-interactively (e.g. `curl ... | bash`, or with stdin piped/redirected), it skips the prompt and applies the default (yes) to those two steps, while always running the terminal emulator, Copy Location, and archive extraction configuration.
+
+### Resetting custom actions
+
+If Thunar's custom actions configuration has become corrupted or broken, use the `--resetconfig` flag to recover:
+
+```bash
+./install-thunar.sh --resetconfig
+```
+
+This removes the 9 custom actions that the script manages — "Open Terminal Here", "Copy Location", "Copy Name", "Extract Here", "Extract Here (No Subfolder)", "Compress Here", "Generate Checksum", "Verify Checksum", and "Calculate Folder Size" — from `~/.config/Thunar/uca.xml` (if they are present), then runs the script normally to recreate them fresh. It only removes actions by name that this script manages; any custom actions you have added yourself are left untouched. The keyboard shortcut configuration for your desktop environment is not affected.
+
+This flag is safe to use even if `uca.xml` doesn't exist yet or none of the managed actions are present — it will simply note that there's nothing to reset and continue.
+
+It combines with other flags and environment variables normally:
+
+```bash
+./install-thunar.sh --resetconfig --terminal alacritty
+```
 
 ### Custom shortcut
 
@@ -87,6 +113,40 @@ The script detects and uses whichever of `tar`, `unzip`, `7z`, `7za`, `7zr`, or 
 
 If none of those tools are found, this step is skipped entirely and nothing is touched.
 
+### Compress files
+
+The script also adds a "Compress Here" custom action to Thunar's right-click menu for compressing files and folders into new archives. The action description in Thunar reads "Compress the selected files or folders into a new archive".
+
+When you right-click one or more files or folders and select "Compress Here", the script compresses them into a single archive in the same directory. If exactly one item is selected, the archive is named after that item (for example, selecting a folder named `Photos` creates `Photos.tar.gz` next to it; selecting a file named `notes.txt` creates `notes.txt.tar.gz`). If multiple items are selected, the archive is named after the containing folder.
+
+The script chooses the archive format based on whichever compression tool is available, in priority order: `tar` (produces `.tar.gz`), `zip` (produces `.zip`), or one of `7z`, `7za`, `7zr` (produces `.7z`). If none of these tools are found, this action is not added.
+
+The script never overwrites an existing archive. If the target name already exists, it tries `name-1.ext`, `name-2.ext`, and so on until it finds a free name.
+
+The "Compress Here" action is gated by the same tool detection as the extract actions (see [Extract archives](#extract-archives) above): if none of the required tools are found, none of the three archive actions — "Extract Here", "Extract Here (No Subfolder)", or "Compress Here" — are configured, and nothing is touched.
+
+### Copy Name
+
+The script also adds a "Copy Name" custom action to Thunar's right-click menu for both files and folders. It copies the file or folder name (without the path) to the clipboard as plain text, so it can be pasted elsewhere.
+
+Like the "Copy Location" action, it uses the same clipboard tool detection: `wl-copy` (if a Wayland session is detected), then `xclip`, then `xsel`, then `wl-copy` again as a last resort. If none of these tools are found, this step is skipped entirely.
+
+### Checksums
+
+The script also adds two checksum actions to Thunar's right-click menu: "Generate Checksum" and "Verify Checksum". Both work with SHA-256 checksums.
+
+The "Generate Checksum" action hashes one or more files into a single checksum file in the same directory. If exactly one file is selected, the checksum file is named after that file (for example, selecting `notes.txt` creates `notes.txt.sha256`). If multiple files are selected, the checksum file is named after the containing folder. The script never overwrites an existing checksum file; if the target name already exists, it tries `name-1.sha256`, `name-2.sha256`, and so on until it finds a free name. This action is only available if `sha256sum` is installed.
+
+The "Verify Checksum" action appears in Thunar's right-click menu only for `.sha256` files. It verifies the selected checksum file using `sha256sum -c`. If `notify-send` is installed, the result ("Checksum OK" or "Checksum FAILED" with details) is shown as a desktop notification; otherwise the verification runs but has no way to display the result. Requires `sha256sum`.
+
+If `sha256sum` is not found, neither of these actions is added.
+
+### Calculate Folder Size
+
+The script also adds a "Calculate Folder Size" custom action to Thunar's right-click menu for folders. It displays the total recursive size of one or more selected folders using `du -sch`. If `notify-send` is installed, the result is shown as a desktop notification; otherwise the size is calculated but has no way to be displayed. Requires `du` (part of coreutils, virtually always present).
+
+If `du` is not found, this action is not added.
+
 ## Supported package managers
 
 `rpm-ostree`, `apt-get`, `dnf`, `yum`, `pacman`, `zypper`, `apk`, `xbps-install`.
@@ -99,7 +159,7 @@ On KDE Plasma 5, the shortcut is applied immediately. On KDE Plasma 6, there is 
 
 ## chezmoi integration
 
-If [chezmoi](https://www.chezmoi.io/) is installed and already initialized (its source directory is a git repository), the script adds the configuration files it wrote or modified — the KDE shortcut files, the XFCE keyboard-shortcuts XML, Thunar's `uca.xml` (which holds the "Open Terminal Here", "Copy Location", "Extract Here", and "Extract Here (No Subfolder)" custom actions), or the terminal-emulator helper files (`~/.local/share/xfce4/helpers/custom-TerminalEmulator.desktop` and `~/.config/xfce4/helpers.rc`) — to your chezmoi source state. This is skipped entirely if chezmoi isn't installed or hasn't been initialized, and it never touches GNOME/Cinnamon/MATE shortcuts since those live in the dconf database rather than a file.
+If [chezmoi](https://www.chezmoi.io/) is installed and already initialized (its source directory is a git repository), the script adds the configuration files it wrote or modified — the KDE shortcut files, the XFCE keyboard-shortcuts XML, Thunar's `uca.xml` (which holds the "Open Terminal Here", "Copy Location", "Extract Here", "Extract Here (No Subfolder)", "Compress Here", "Copy Name", "Generate Checksum", "Verify Checksum", and "Calculate Folder Size" custom actions), or the terminal-emulator helper files (`~/.local/share/xfce4/helpers/custom-TerminalEmulator.desktop` and `~/.config/xfce4/helpers.rc`) — to your chezmoi source state. This is skipped entirely if chezmoi isn't installed or hasn't been initialized, and it never touches GNOME/Cinnamon/MATE shortcuts since those live in the dconf database rather than a file.
 
 ## Contributing
 

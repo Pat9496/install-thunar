@@ -13,10 +13,15 @@ Ein Shell-Skript, das [Thunar](https://docs.xfce.org/xfce/thunar/start) installi
 
 - [Was das Skript tut](#was-das-skript-tut)
 - [Verwendung](#verwendung)
+  - [Konfiguration zurücksetzen](#konfiguration-zurücksetzen)
   - [Benutzerdefinierte Tastaturkombination](#benutzerdefinierte-tastaturkombination)
   - [Terminal-Emulator für „Open Terminal Here"](#terminal-emulator-für-open-terminal-here)
   - [Copy Location](#copy-location)
+  - [Copy Name](#copy-name)
   - [Archive extrahieren](#archive-extrahieren)
+  - [Archive komprimieren](#archive-komprimieren)
+  - [Prüfsummen](#prüfsummen)
+  - [Ordnergröße berechnen](#ordnergröße-berechnen)
 - [Unterstützte Paketmanager](#unterstützte-paketmanager)
 - [Unterstützte Desktop-Umgebungen (Tastaturkombination)](#unterstützte-desktop-umgebungen-tastaturkombination)
 - [chezmoi-Integration](#chezmoi-integration)
@@ -31,7 +36,10 @@ Ein Shell-Skript, das [Thunar](https://docs.xfce.org/xfce/thunar/start) installi
 3. Erkennt die Desktop-Umgebung und konfiguriert eine Tastaturkombination zum Starten von Thunar.
 4. Konfiguriert die Aktion „Open Terminal Here" von Thunar für die Verwendung eines erkannten oder explizit gewählten Terminal-Emulators.
 5. Fügt eine Aktion „Copy Location" zu Thunar hinzu, die den vollständigen Pfad der ausgewählten Datei oder des Ordners in die Zwischenablage kopiert.
-6. Fügt die Aktionen „Extract Here" und „Extract Here (No Subfolder)" zu Thunar hinzu, um Archive sicher oder direkt zu extrahieren.
+6. Fügt eine Aktion „Copy Name" zu Thunar hinzu, die den Namen der ausgewählten Datei oder des Ordners (ohne Pfad) in die Zwischenablage kopiert.
+7. Fügt Aktionen zur Archivverwaltung zu Thunar hinzu: „Extract Here" und „Extract Here (No Subfolder)" zum Extrahieren sowie „Compress Here" zum Komprimieren.
+8. Fügt Aktionen für Prüfsummen hinzu: „Generate Checksum" zum Erstellen von SHA-256-Prüfsummendateien und „Verify Checksum" zum Verifizieren derselben.
+9. Fügt eine Aktion „Calculate Folder Size" zu Thunar hinzu, die die rekursive Gesamtgröße ausgewählter Ordner berechnet und anzeigt.
 
 ## Verwendung
 
@@ -42,6 +50,24 @@ Ein Shell-Skript, das [Thunar](https://docs.xfce.org/xfce/thunar/start) installi
 Das Skript installiert Pakete mit `sudo` nur bei Bedarf; der Rest wird als normaler Benutzer ausgeführt.
 
 Nach der Installation von Thunar fragt das Skript in einem interaktiven Terminal, ob Thunar als Standard-Dateiverwaltung festgelegt und die Tastaturkombination konfiguriert werden sollen (`[Y/n]`, Standard ist Ja). Die Konfiguration des Terminal-Emulators für „Open Terminal Here", die Aktion „Copy Location" und die Aktionen zur Archivextraktion laufen immer ab, unabhängig davon, wie diese Eingabe beantwortet wird. Bei nicht-interaktiver Ausführung (z. B. `curl ... | bash` oder mit umgeleiteter/weitergeleiteter Standardeingabe) wird die Eingabeaufforderung übersprungen und die Standardwerte (Ja) für diese zwei Schritte angewendet, während die Konfiguration des Terminal-Emulators, Copy Location und die Archive-Extraktion immer laufen.
+
+### Konfiguration zurücksetzen
+
+Falls die Kontextmenü-Aktionen-Konfiguration von Thunar beschädigt oder defekt wurde, kann das `--resetconfig`-Flag zur Wiederherstellung verwendet werden:
+
+```bash
+./install-thunar.sh --resetconfig
+```
+
+Dies entfernt die 9 benutzerdefinierten Aktionen, die das Skript verwaltet – „Open Terminal Here", „Copy Location", „Copy Name", „Extract Here", „Extract Here (No Subfolder)", „Compress Here", „Generate Checksum", „Verify Checksum" und „Calculate Folder Size" – aus `~/.config/Thunar/uca.xml` (falls vorhanden) und führt das Skript dann normal aus, um diese erneut zu erstellen. Es werden nur Aktionen nach Namen entfernt, die dieses Skript verwaltet; weitere selbst hinzugefügte benutzerdefinierte Aktionen werden nicht angerührt. Die Tastaturkombinations-Konfiguration der Desktop-Umgebung wird nicht angerührt.
+
+Das Flag kann gefahrlos verwendet werden, auch wenn `uca.xml` noch nicht existiert oder keine der verwalteten Aktionen vorhanden sind – das Skript wird einfach protokollieren, dass nichts zurückzusetzen ist, und fortfahren.
+
+Das Flag lässt sich normal mit anderen Flags und Umgebungsvariablen kombinieren:
+
+```bash
+./install-thunar.sh --resetconfig --terminal alacritty
+```
 
 ### Benutzerdefinierte Tastaturkombination
 
@@ -77,6 +103,12 @@ Das Skript fügt auch eine benutzerdefinierte Aktion „Copy Location" zu Thunar
 
 Dazu wählt es ein Zwischenablage-Tool in dieser Reihenfolge: `wl-copy` (falls eine Wayland-Sitzung über `$WAYLAND_DISPLAY` erkannt wird und `wl-copy` auf `PATH` ist), dann `xclip`, dann `xsel`, dann `wl-copy` nochmals als letzter Ausweg auch ohne erkannte Wayland-Sitzung. Falls keines von `wl-copy`, `xclip` oder `xsel` gefunden wird, wird dieser Schritt ganz übersprungen und nichts verändert – dieses Skript installiert ein Zwischenablage-Tool nicht für Benutzer, genauso wie es einen Terminal-Emulator nicht installiert.
 
+### Copy Name
+
+Das Skript fügt auch eine benutzerdefinierte Aktion „Copy Name" zu Thunars Kontextmenü hinzu, für Dateien und Ordner gleichermaßen. Der Name der Datei oder des Ordners (ohne Pfad) wird als Klartext in die Zwischenablage kopiert, sodass er anderswo eingefügt werden kann.
+
+Dazu wählt es ein Zwischenablage-Tool in dieser Reihenfolge: `wl-copy` (falls eine Wayland-Sitzung über `$WAYLAND_DISPLAY` erkannt wird und `wl-copy` auf `PATH` ist), dann `xclip`, dann `xsel`, dann `wl-copy` nochmals als letzter Ausweg auch ohne erkannte Wayland-Sitzung. Falls keines von `wl-copy`, `xclip` oder `xsel` gefunden wird, wird dieser Schritt ganz übersprungen und nichts verändert.
+
 ### Archive extrahieren
 
 Das Skript fügt auch zwei Aktionen zur Archivextraktion zu Thunars Kontextmenü hinzu: „Extract Here" und „Extract Here (No Subfolder)". Die Aktion „Extract Here" extrahiert ein Archiv in einen neuen Unterordner mit dem Namen des Archivs (z. B. erstellt das Extrahieren von `foo.zip` einen Ordner `./foo/` und extrahiert dessen Inhalte darin), was der sichere Standard ist, der niemals bestehende Dateien überschreibt. Die Aktion „Extract Here (No Subfolder)" extrahiert direkt in das aktuelle Verzeichnis, flacht die Archiv-Inhalte ab, was bestehende Dateien mit denselben Namen überschreiben kann.
@@ -86,6 +118,34 @@ Beide Aktionen erscheinen in Thunars Kontextmenü nur für erkannte Archiv-Datei
 Das Skript erkennt und nutzt eines der folgenden: `tar`, `unzip`, `7z`, `7za`, `7zr` oder `unrar`, das bereits installiert ist und für das Archiv-Format geeignet ist. Dieses Skript installiert ein Archiv-Tool nicht – es nutzt, welche Extraktions-Tools bereits im System vorhanden sind, die gleiche Philosophie wie der Terminal-Emulator und das Zwischenablage-Tool.
 
 Falls keines dieser Tools gefunden wird, wird dieser Schritt ganz übersprungen und nichts verändert.
+
+### Archive komprimieren
+
+Das Skript fügt auch eine Aktion „Compress Here" zu Thunars Kontextmenü hinzu, um ausgewählte Dateien und Ordner zu komprimieren. Bei genau einem ausgewählten Element wird das Archiv nach diesem Element benannt (z. B. erstellt das Auswählen des Ordners `Photos` eine Datei `Photos.tar.gz`); bei mehreren Elementen wird das Archiv nach dem übergeordneten Ordner benannt.
+
+Das Skript wählt das Archivformat in dieser Reihenfolge: `tar` (erzeugt `.tar.gz`), `zip` (erzeugt `.zip`), `7z`/`7za`/`7zr` (erzeugt `.7z`).
+
+Das Skript überschreibt niemals ein bestehendes Archiv: Existiert der Zielname, werden `name-1.ext`, `name-2.ext` usw. versucht, bis ein freier Name gefunden ist.
+
+Das Skript erkennt und nutzt eines der Archiv-Tools (`tar`, `zip`, `7z`, `7za`, `7zr`), das bereits installiert ist. Dieses Skript installiert ein Kompressions-Werkzeug nicht – es nutzt, welche Tools bereits im System vorhanden sind, die gleiche Philosophie wie die Extract-Aktionen.
+
+Falls keines dieser Tools gefunden wird, wird dieser Schritt übersprungen und nichts verändert.
+
+### Prüfsummen
+
+Das Skript fügt zwei Aktionen zur Verwaltung von SHA-256-Prüfsummen hinzu: „Generate Checksum" und „Verify Checksum".
+
+Die Aktion „Generate Checksum" erstellt eine SHA-256-Prüfsummendatei für ausgewählte Dateien. Bei genau einer ausgewählten Datei wird die Prüfsummendatei nach dieser benannt (z. B. erstellt das Auswählen von `notes.txt` eine Datei `notes.txt.sha256`); bei mehreren ausgewählten Dateien wird sie nach dem übergeordneten Ordner benannt (z. B. `Downloads.sha256`). Das Skript überschreibt niemals eine bestehende Prüfsummendatei: Existiert der Zielname, werden `name-1.sha256`, `name-2.sha256` usw. versucht, bis ein freier Name gefunden ist. Diese Aktion funktioniert nur mit Dateien, nicht mit Ordnern.
+
+Die Aktion „Verify Checksum" überprüft eine ausgewählte `.sha256`-Prüfsummendatei gegen die Dateien, auf die sie sich bezieht. Falls `notify-send` installiert ist, wird das Ergebnis als Desktop-Benachrichtigung angezeigt („Checksum OK" oder „Checksum FAILED" mit Details); ist `notify-send` nicht installiert, wird die Prüfung trotzdem durchgeführt, das Ergebnis kann aber nicht angezeigt werden. Diese Aktion erscheint nur im Kontextmenü für `.sha256`-Dateien.
+
+Beide Aktionen benötigen `sha256sum` (üblicherweise Teil von coreutils). Falls `sha256sum` nicht gefunden wird, werden diese Aktionen ganz übersprungen und nichts verändert.
+
+### Ordnergröße berechnen
+
+Das Skript fügt auch eine Aktion „Calculate Folder Size" zu Thunars Kontextmenü hinzu, um die rekursive Gesamtgröße ausgewählter Ordner zu berechnen und anzuzeigen. Falls `notify-send` installiert ist, wird das Ergebnis als Desktop-Benachrichtigung angezeigt; ist `notify-send` nicht installiert, wird die Berechnung trotzdem durchgeführt, das Ergebnis kann aber nicht angezeigt werden. Diese Aktion erscheint nur im Kontextmenü für Ordner, nicht für Dateien, und funktioniert mit einem oder mehreren ausgewählten Ordnern gleichzeitig.
+
+Diese Aktion benötigt `du` (üblicherweise Teil von coreutils und praktisch immer vorhanden). Falls `du` nicht gefunden wird, wird dieser Schritt übersprungen und nichts verändert.
 
 ## Unterstützte Paketmanager
 
@@ -99,7 +159,7 @@ Auf KDE Plasma 5 wird die Tastaturkombination sofort angewendet. Auf KDE Plasma 
 
 ## chezmoi-Integration
 
-Falls [chezmoi](https://www.chezmoi.io/) installiert und bereits initialisiert ist (sein Quellverzeichnis ist ein Git-Repository), fügt das Skript die Konfigurationsdateien, die es geschrieben oder geändert hat – die KDE-Tastaturkombinations-Dateien, die XFCE-Tastaturkombinations-XML, Thunars `uca.xml` (die „Open Terminal Here", „Copy Location", „Extract Here" und „Extract Here (No Subfolder)" benutzerdefinierte Aktionen enthält), oder die Terminal-Emulator-Helferdateien (`~/.local/share/xfce4/helpers/custom-TerminalEmulator.desktop` und `~/.config/xfce4/helpers.rc`) – zum chezmoi-Quellzustand hinzu. Dies wird komplett übersprungen, falls chezmoi nicht installiert oder nicht initialisiert ist, und es verändert niemals GNOME/Cinnamon/MATE-Tastaturkombinationen, da diese in der dconf-Datenbank statt in einer Datei leben.
+Falls [chezmoi](https://www.chezmoi.io/) installiert und bereits initialisiert ist (sein Quellverzeichnis ist ein Git-Repository), fügt das Skript die Konfigurationsdateien, die es geschrieben oder geändert hat – die KDE-Tastaturkombinations-Dateien, die XFCE-Tastaturkombinations-XML, Thunars `uca.xml` (die „Open Terminal Here", „Copy Location", „Copy Name", „Extract Here", „Extract Here (No Subfolder)", „Compress Here", „Generate Checksum", „Verify Checksum" und „Calculate Folder Size" benutzerdefinierte Aktionen enthält), oder die Terminal-Emulator-Helferdateien (`~/.local/share/xfce4/helpers/custom-TerminalEmulator.desktop` und `~/.config/xfce4/helpers.rc`) – zum chezmoi-Quellzustand hinzu. Dies wird komplett übersprungen, falls chezmoi nicht installiert oder nicht initialisiert ist, und es verändert niemals GNOME/Cinnamon/MATE-Tastaturkombinationen, da diese in der dconf-Datenbank statt in einer Datei leben.
 
 ## Beitragen
 

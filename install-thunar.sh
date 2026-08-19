@@ -22,6 +22,19 @@ run_as_root() {
 }
 
 REBOOT_REQUIRED=0
+RESET_CONFIG=0
+
+MANAGED_UCA_ACTIONS=(
+  "Open Terminal Here"
+  "Copy Location"
+  "Copy Name"
+  "Extract Here"
+  "Extract Here (No Subfolder)"
+  "Compress Here"
+  "Generate Checksum"
+  "Verify Checksum"
+  "Calculate Folder Size"
+)
 
 SHORTCUT="${THUNAR_SHORTCUT:-<Super>e}"
 if [[ -z "${SHORTCUT}" ]]; then
@@ -630,9 +643,10 @@ detect_archive_tools() {
 
 escape_xml() {
   local s="$1"
-  s="${s//&/&amp;}"
-  s="${s//</&lt;}"
-  s="${s//>/&gt;}"
+  # Escape the literal & with \& to avoid patsub_replacement treating & in the replacement as a backreference to the match (Bash >= 5.2 default).
+  s="${s//&/\&amp;}"
+  s="${s//</\&lt;}"
+  s="${s//>/\&gt;}"
   echo "${s}"
 }
 
@@ -657,6 +671,79 @@ build_clipboard_command() {
     wl-copy) echo "wl-copy" ;;
     *) echo "" ;;
   esac
+}
+
+reset_uca_actions() {
+  if [[ "${RESET_CONFIG}" -ne 1 ]]; then
+    return
+  fi
+
+  local config_home="${XDG_CONFIG_HOME:-${HOME}/.config}"
+  local uca_file="${config_home}/Thunar/uca.xml"
+
+  if [[ ! -f "${uca_file}" ]]; then
+    log "No existing uca.xml found; nothing to reset."
+    return
+  fi
+
+  local -a found_actions=()
+  local action
+  for action in "${MANAGED_UCA_ACTIONS[@]}"; do
+    if grep -qF "<name>${action}</name>" "${uca_file}"; then
+      found_actions+=("${action}")
+    fi
+  done
+
+  if [[ ${#found_actions[@]} -eq 0 ]]; then
+    log "No managed custom actions found to reset."
+    return
+  fi
+
+  local names_joined=""
+  for action in "${MANAGED_UCA_ACTIONS[@]}"; do
+    if [[ -n "${names_joined}" ]]; then
+      names_joined+=$'\n'
+    fi
+    names_joined+="${action}"
+  done
+
+  local tmpfile
+  tmpfile=$(mktemp)
+  awk -v names="${names_joined}" '
+      BEGIN {
+        n = split(names, arr, "\n")
+        for (i = 1; i <= n; i++) managed[arr[i]] = 1
+      }
+      /<action>/ {
+        in_action = 1
+        buffer = $0 "\n"
+        name = ""
+        next
+      }
+      in_action {
+        buffer = buffer $0 "\n"
+        if (match($0, /<name>.*<\/name>/)) {
+          name = substr($0, RSTART, RLENGTH)
+          sub(/^<name>/, "", name)
+          sub(/<\/name>$/, "", name)
+        }
+        if (/<\/action>/) {
+          in_action = 0
+          if (!(name in managed)) {
+            printf "%s", buffer
+          }
+        }
+        next
+      }
+      { print }
+    ' "${uca_file}" > "${tmpfile}"
+  mv "${tmpfile}" "${uca_file}"
+
+  for action in "${found_actions[@]}"; do
+    log "Reset '${action}' action (will be recreated)."
+  done
+
+  chezmoi_track "${uca_file}"
 }
 
 configure_uca_terminal() {
@@ -708,6 +795,8 @@ EOF
   local tmpfile
   tmpfile=$(mktemp)
   if awk -v newcmd="${escaped_command}" '
+      # Escape literal & in newcmd to \& so awk sub()/gsub() do not treat it as a backreference to the match.
+      BEGIN { gsub(/&/, "\\\\&", newcmd) }
       /<action>/ { in_action = 1 }
       in_action && /<name>Open Terminal Here<\/name>/ { found_name = 1 }
       in_action && found_name && /<command>/ && !replaced {
@@ -790,6 +879,7 @@ EOF
   local tmpfile
   tmpfile=$(mktemp)
   if awk -v newcmd="${escaped_command}" '
+      BEGIN { gsub(/&/, "\\\\&", newcmd) }
       /<action>/ { in_action = 1; found_name = 0; has_filetypes = 0; indent = "\t" }
       in_action && /<name>Copy Location<\/name>/ { found_name = 1 }
       in_action && found_name && /<command>/ && !replaced {
@@ -827,6 +917,103 @@ EOF
     awk -v action="${action_xml}" '/<\/actions>/ { print action } { print }' "${uca_file}" > "${tmpfile2}"
     mv "${tmpfile2}" "${uca_file}"
     log "Added a new 'Copy Location' action to Thunar using: ${tool}"
+    chezmoi_track "${uca_file}"
+  else
+    log "${uca_file} exists but has no '</actions>' closing tag; leaving it untouched."
+  fi
+}
+
+configure_uca_copy_name() {
+  local tool="$1"
+  local command="$2"
+
+  if [[ -z "${command}" ]]; then
+    log "No clipboard tool found (install xclip, xsel, or wl-clipboard); leaving Thunar's 'Copy Name' action untouched."
+    return
+  fi
+
+  local config_home="${XDG_CONFIG_HOME:-${HOME}/.config}"
+  local uca_dir="${config_home}/Thunar"
+  local uca_file="${uca_dir}/uca.xml"
+  local escaped_command
+  escaped_command=$(escape_xml "${command}")
+
+  mkdir -p "${uca_dir}"
+
+  local action_xml
+  action_xml=$(cat <<EOF
+<action>
+	<icon>edit-copy</icon>
+	<name>Copy Name</name>
+	<submenu></submenu>
+	<unique-id>$(date +%s%N)-6</unique-id>
+	<command>${escaped_command}</command>
+	<description>Copy the file or folder name to the clipboard as plain text</description>
+	<range></range>
+	<patterns>*</patterns>
+	<directories/>
+	<audio-files/>
+	<image-files/>
+	<other-files/>
+	<text-files/>
+	<video-files/>
+</action>
+EOF
+  )
+
+  if [[ ! -f "${uca_file}" ]]; then
+    cat > "${uca_file}" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<actions>
+${action_xml}
+</actions>
+EOF
+    log "Created ${uca_file} with a 'Copy Name' action using: ${tool}"
+    chezmoi_track "${uca_file}"
+    return
+  fi
+
+  local tmpfile
+  tmpfile=$(mktemp)
+  if awk -v newcmd="${escaped_command}" '
+      BEGIN { gsub(/&/, "\\\\&", newcmd) }
+      /<action>/ { in_action = 1; found_name = 0; has_filetypes = 0; indent = "\t" }
+      in_action && /<name>Copy Name<\/name>/ { found_name = 1 }
+      in_action && found_name && /<command>/ && !replaced {
+        sub(/<command>.*<\/command>/, "<command>" newcmd "</command>")
+        replaced = 1
+      }
+      in_action && found_name && /<directories\/>/ {
+        indent = $0
+        sub(/<directories\/>.*/, "", indent)
+      }
+      in_action && found_name && /<(audio-files|image-files|other-files|text-files|video-files)\/>/ {
+        has_filetypes = 1
+      }
+      in_action && found_name && /<\/action>/ && !has_filetypes {
+        print indent "<audio-files/>"
+        print indent "<image-files/>"
+        print indent "<other-files/>"
+        print indent "<text-files/>"
+        print indent "<video-files/>"
+      }
+      { print }
+      /<\/action>/ { in_action = 0; found_name = 0 }
+      END { if (replaced) exit 0; else exit 1 }
+    ' "${uca_file}" > "${tmpfile}"; then
+    mv "${tmpfile}" "${uca_file}"
+    log "Updated Thunar's existing 'Copy Name' action to use: ${tool}"
+    chezmoi_track "${uca_file}"
+    return
+  fi
+
+  rm -f "${tmpfile}"
+  if grep -q '</actions>' "${uca_file}"; then
+    local tmpfile2
+    tmpfile2=$(mktemp)
+    awk -v action="${action_xml}" '/<\/actions>/ { print action } { print }' "${uca_file}" > "${tmpfile2}"
+    mv "${tmpfile2}" "${uca_file}"
+    log "Added a new 'Copy Name' action to Thunar using: ${tool}"
     chezmoi_track "${uca_file}"
   else
     log "${uca_file} exists but has no '</actions>' closing tag; leaving it untouched."
@@ -881,6 +1068,7 @@ EOF
   local tmpfile
   tmpfile=$(mktemp)
   if awk -v newcmd="${escaped_command}" '
+      BEGIN { gsub(/&/, "\\\\&", newcmd) }
       /<action>/ { in_action = 1 }
       in_action && /<name>Extract Here<\/name>/ { found_name = 1 }
       in_action && found_name && /<command>/ && !replaced {
@@ -958,6 +1146,7 @@ EOF
   local tmpfile
   tmpfile=$(mktemp)
   if awk -v newcmd="${escaped_command}" '
+      BEGIN { gsub(/&/, "\\\\&", newcmd) }
       /<action>/ { in_action = 1 }
       in_action && /<name>Extract Here \(No Subfolder\)<\/name>/ { found_name = 1 }
       in_action && found_name && /<command>/ && !replaced {
@@ -981,6 +1170,315 @@ EOF
     awk -v action="${action_xml}" '/<\/actions>/ { print action } { print }' "${uca_file}" > "${tmpfile2}"
     mv "${tmpfile2}" "${uca_file}"
     log "Added a new 'Extract Here (No Subfolder)' action to Thunar."
+    chezmoi_track "${uca_file}"
+  else
+    log "${uca_file} exists but has no '</actions>' closing tag; leaving it untouched."
+  fi
+}
+
+configure_uca_compress_here() {
+  local config_home="${XDG_CONFIG_HOME:-${HOME}/.config}"
+  local uca_dir="${config_home}/Thunar"
+  local uca_file="${uca_dir}/uca.xml"
+
+  local script
+  script='dir=$(dirname "$1"); cd "$dir" || exit 1; names=(); for a in "$@"; do names+=("$(basename "$a")"); done; if [ "$#" -eq 1 ]; then base="${names[0]}"; else base=$(basename "$dir"); fi; if command -v tar >/dev/null 2>&1; then ext=".tar.gz"; elif command -v zip >/dev/null 2>&1; then ext=".zip"; else sevenzip=""; for c in 7z 7za 7zr; do if command -v "$c" >/dev/null 2>&1; then sevenzip="$c"; break; fi; done; [ -n "$sevenzip" ] || exit 1; ext=".7z"; fi; target="$base$ext"; i=0; while [ -e "$target" ]; do i=$((i + 1)); target="$base-$i$ext"; done; case "$ext" in .tar.gz) tar -czf "$target" -- "${names[@]}" ;; .zip) zip -rq "$target" -- "${names[@]}" ;; .7z) "$sevenzip" a -y "$target" -- "${names[@]}" ;; esac'
+  local command="bash -c '${script}' -- %F"
+  local escaped_command
+  escaped_command=$(escape_xml "${command}")
+
+  mkdir -p "${uca_dir}"
+
+  local action_xml
+  action_xml=$(cat <<EOF
+<action>
+	<icon>archive-insert</icon>
+	<name>Compress Here</name>
+	<submenu></submenu>
+	<unique-id>$(date +%s%N)-5</unique-id>
+	<command>${escaped_command}</command>
+	<description>Compress the selected files or folders into a new archive</description>
+	<range></range>
+	<patterns>*</patterns>
+	<directories/>
+	<audio-files/>
+	<image-files/>
+	<other-files/>
+	<text-files/>
+	<video-files/>
+</action>
+EOF
+  )
+
+  if [[ ! -f "${uca_file}" ]]; then
+    cat > "${uca_file}" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<actions>
+${action_xml}
+</actions>
+EOF
+    log "Created ${uca_file} with a 'Compress Here' action."
+    chezmoi_track "${uca_file}"
+    return
+  fi
+
+  local tmpfile
+  tmpfile=$(mktemp)
+  if awk -v newcmd="${escaped_command}" '
+      BEGIN { gsub(/&/, "\\\\&", newcmd) }
+      /<action>/ { in_action = 1 }
+      in_action && /<name>Compress Here<\/name>/ { found_name = 1 }
+      in_action && found_name && /<command>/ && !replaced {
+        sub(/<command>.*<\/command>/, "<command>" newcmd "</command>")
+        replaced = 1
+      }
+      { print }
+      /<\/action>/ { in_action = 0; found_name = 0 }
+      END { if (replaced) exit 0; else exit 1 }
+    ' "${uca_file}" > "${tmpfile}"; then
+    mv "${tmpfile}" "${uca_file}"
+    log "Updated Thunar's existing 'Compress Here' action."
+    chezmoi_track "${uca_file}"
+    return
+  fi
+
+  rm -f "${tmpfile}"
+  if grep -q '</actions>' "${uca_file}"; then
+    local tmpfile2
+    tmpfile2=$(mktemp)
+    awk -v action="${action_xml}" '/<\/actions>/ { print action } { print }' "${uca_file}" > "${tmpfile2}"
+    mv "${tmpfile2}" "${uca_file}"
+    log "Added a new 'Compress Here' action to Thunar."
+    chezmoi_track "${uca_file}"
+  else
+    log "${uca_file} exists but has no '</actions>' closing tag; leaving it untouched."
+  fi
+}
+
+configure_uca_generate_checksum() {
+  local config_home="${XDG_CONFIG_HOME:-${HOME}/.config}"
+  local uca_dir="${config_home}/Thunar"
+  local uca_file="${uca_dir}/uca.xml"
+
+  local script
+  script='dir=$(dirname "$1"); cd "$dir" || exit 1; names=(); for a in "$@"; do names+=("$(basename "$a")"); done; if [ "$#" -eq 1 ]; then base="${names[0]}"; else base=$(basename "$dir"); fi; command -v sha256sum >/dev/null 2>&1 || exit 1; target="$base.sha256"; i=0; while [ -e "$target" ]; do i=$((i + 1)); target="$base-$i.sha256"; done; sha256sum -- "${names[@]}" > "$target"'
+  local command="bash -c '${script}' -- %F"
+  local escaped_command
+  escaped_command=$(escape_xml "${command}")
+
+  mkdir -p "${uca_dir}"
+
+  local action_xml
+  action_xml=$(cat <<EOF
+<action>
+	<icon>document-save</icon>
+	<name>Generate Checksum</name>
+	<submenu></submenu>
+	<unique-id>$(date +%s%N)-7</unique-id>
+	<command>${escaped_command}</command>
+	<description>Generate a SHA-256 checksum file for the selected files</description>
+	<range></range>
+	<patterns>*</patterns>
+	<audio-files/>
+	<image-files/>
+	<other-files/>
+	<text-files/>
+	<video-files/>
+</action>
+EOF
+  )
+
+  if [[ ! -f "${uca_file}" ]]; then
+    cat > "${uca_file}" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<actions>
+${action_xml}
+</actions>
+EOF
+    log "Created ${uca_file} with a 'Generate Checksum' action."
+    chezmoi_track "${uca_file}"
+    return
+  fi
+
+  local tmpfile
+  tmpfile=$(mktemp)
+  if awk -v newcmd="${escaped_command}" '
+      BEGIN { gsub(/&/, "\\\\&", newcmd) }
+      /<action>/ { in_action = 1 }
+      in_action && /<name>Generate Checksum<\/name>/ { found_name = 1 }
+      in_action && found_name && /<command>/ && !replaced {
+        sub(/<command>.*<\/command>/, "<command>" newcmd "</command>")
+        replaced = 1
+      }
+      { print }
+      /<\/action>/ { in_action = 0; found_name = 0 }
+      END { if (replaced) exit 0; else exit 1 }
+    ' "${uca_file}" > "${tmpfile}"; then
+    mv "${tmpfile}" "${uca_file}"
+    log "Updated Thunar's existing 'Generate Checksum' action."
+    chezmoi_track "${uca_file}"
+    return
+  fi
+
+  rm -f "${tmpfile}"
+  if grep -q '</actions>' "${uca_file}"; then
+    local tmpfile2
+    tmpfile2=$(mktemp)
+    awk -v action="${action_xml}" '/<\/actions>/ { print action } { print }' "${uca_file}" > "${tmpfile2}"
+    mv "${tmpfile2}" "${uca_file}"
+    log "Added a new 'Generate Checksum' action to Thunar."
+    chezmoi_track "${uca_file}"
+  else
+    log "${uca_file} exists but has no '</actions>' closing tag; leaving it untouched."
+  fi
+}
+
+configure_uca_verify_checksum() {
+  local config_home="${XDG_CONFIG_HOME:-${HOME}/.config}"
+  local uca_dir="${config_home}/Thunar"
+  local uca_file="${uca_dir}/uca.xml"
+
+  local script
+  script='f="$1"; dir=$(dirname "$f"); base=$(basename "$f"); cd "$dir" || exit 1; command -v sha256sum >/dev/null 2>&1 || exit 1; if out=$(sha256sum -c -- "$base" 2>&1); then if command -v notify-send >/dev/null 2>&1; then notify-send "Checksum OK" "$out"; fi; else if command -v notify-send >/dev/null 2>&1; then notify-send -u critical "Checksum FAILED" "$out"; fi; exit 1; fi'
+  local command="bash -c '${script}' -- %f"
+  local escaped_command
+  escaped_command=$(escape_xml "${command}")
+
+  mkdir -p "${uca_dir}"
+
+  local action_xml
+  action_xml=$(cat <<EOF
+<action>
+	<icon>dialog-ok-apply</icon>
+	<name>Verify Checksum</name>
+	<submenu></submenu>
+	<unique-id>$(date +%s%N)-8</unique-id>
+	<command>${escaped_command}</command>
+	<description>Verify the selected SHA-256 checksum file</description>
+	<range></range>
+	<patterns>*.sha256</patterns>
+	<audio-files/>
+	<image-files/>
+	<other-files/>
+	<text-files/>
+	<video-files/>
+</action>
+EOF
+  )
+
+  if [[ ! -f "${uca_file}" ]]; then
+    cat > "${uca_file}" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<actions>
+${action_xml}
+</actions>
+EOF
+    log "Created ${uca_file} with a 'Verify Checksum' action."
+    chezmoi_track "${uca_file}"
+    return
+  fi
+
+  local tmpfile
+  tmpfile=$(mktemp)
+  if awk -v newcmd="${escaped_command}" '
+      BEGIN { gsub(/&/, "\\\\&", newcmd) }
+      /<action>/ { in_action = 1 }
+      in_action && /<name>Verify Checksum<\/name>/ { found_name = 1 }
+      in_action && found_name && /<command>/ && !replaced {
+        sub(/<command>.*<\/command>/, "<command>" newcmd "</command>")
+        replaced = 1
+      }
+      { print }
+      /<\/action>/ { in_action = 0; found_name = 0 }
+      END { if (replaced) exit 0; else exit 1 }
+    ' "${uca_file}" > "${tmpfile}"; then
+    mv "${tmpfile}" "${uca_file}"
+    log "Updated Thunar's existing 'Verify Checksum' action."
+    chezmoi_track "${uca_file}"
+    return
+  fi
+
+  rm -f "${tmpfile}"
+  if grep -q '</actions>' "${uca_file}"; then
+    local tmpfile2
+    tmpfile2=$(mktemp)
+    awk -v action="${action_xml}" '/<\/actions>/ { print action } { print }' "${uca_file}" > "${tmpfile2}"
+    mv "${tmpfile2}" "${uca_file}"
+    log "Added a new 'Verify Checksum' action to Thunar."
+    chezmoi_track "${uca_file}"
+  else
+    log "${uca_file} exists but has no '</actions>' closing tag; leaving it untouched."
+  fi
+}
+
+configure_uca_folder_size() {
+  local config_home="${XDG_CONFIG_HOME:-${HOME}/.config}"
+  local uca_dir="${config_home}/Thunar"
+  local uca_file="${uca_dir}/uca.xml"
+
+  local script
+  script='command -v du >/dev/null 2>&1 || exit 1; result=$(du -sch -- "$@" 2>/dev/null); if command -v notify-send >/dev/null 2>&1; then notify-send "Folder size" "$result"; fi'
+  local command="bash -c '${script}' -- %F"
+  local escaped_command
+  escaped_command=$(escape_xml "${command}")
+
+  mkdir -p "${uca_dir}"
+
+  local action_xml
+  action_xml=$(cat <<EOF
+<action>
+	<icon>document-properties</icon>
+	<name>Calculate Folder Size</name>
+	<submenu></submenu>
+	<unique-id>$(date +%s%N)-9</unique-id>
+	<command>${escaped_command}</command>
+	<description>Show the total size of the selected folders</description>
+	<range></range>
+	<patterns>*</patterns>
+	<directories/>
+</action>
+EOF
+  )
+
+  if [[ ! -f "${uca_file}" ]]; then
+    cat > "${uca_file}" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<actions>
+${action_xml}
+</actions>
+EOF
+    log "Created ${uca_file} with a 'Calculate Folder Size' action."
+    chezmoi_track "${uca_file}"
+    return
+  fi
+
+  local tmpfile
+  tmpfile=$(mktemp)
+  if awk -v newcmd="${escaped_command}" '
+      BEGIN { gsub(/&/, "\\\\&", newcmd) }
+      /<action>/ { in_action = 1 }
+      in_action && /<name>Calculate Folder Size<\/name>/ { found_name = 1 }
+      in_action && found_name && /<command>/ && !replaced {
+        sub(/<command>.*<\/command>/, "<command>" newcmd "</command>")
+        replaced = 1
+      }
+      { print }
+      /<\/action>/ { in_action = 0; found_name = 0 }
+      END { if (replaced) exit 0; else exit 1 }
+    ' "${uca_file}" > "${tmpfile}"; then
+    mv "${tmpfile}" "${uca_file}"
+    log "Updated Thunar's existing 'Calculate Folder Size' action."
+    chezmoi_track "${uca_file}"
+    return
+  fi
+
+  rm -f "${tmpfile}"
+  if grep -q '</actions>' "${uca_file}"; then
+    local tmpfile2
+    tmpfile2=$(mktemp)
+    awk -v action="${action_xml}" '/<\/actions>/ { print action } { print }' "${uca_file}" > "${tmpfile2}"
+    mv "${tmpfile2}" "${uca_file}"
+    log "Added a new 'Calculate Folder Size' action to Thunar."
     chezmoi_track "${uca_file}"
   else
     log "${uca_file} exists but has no '</actions>' closing tag; leaving it untouched."
@@ -1066,6 +1564,25 @@ configure_copy_location() {
   configure_uca_copy_location "${tool}" "${copy_command}"
 }
 
+configure_copy_name() {
+  local tool
+  tool=$(detect_clipboard_tool)
+
+  if [[ -z "${tool}" ]]; then
+    log "No clipboard tool found (install xclip, xsel, or wl-clipboard)."
+    log "Skipping 'Copy Name' configuration."
+    return
+  fi
+
+  local clipboard_tail
+  clipboard_tail=$(build_clipboard_command "${tool}")
+
+  local copy_name_command
+  copy_name_command="bash -c 'printf %s \"\$(basename \"\$1\")\" | ${clipboard_tail}' -- %f"
+
+  configure_uca_copy_name "${tool}" "${copy_name_command}"
+}
+
 configure_extract_actions() {
   local found
   found=$(detect_archive_tools)
@@ -1078,6 +1595,28 @@ configure_extract_actions() {
 
   configure_uca_extract_here
   configure_uca_extract_flatten
+  configure_uca_compress_here
+}
+
+configure_checksum_actions() {
+  if ! command -v sha256sum >/dev/null 2>&1; then
+    log "'sha256sum' was not found on this system."
+    log "Skipping checksum actions."
+    return
+  fi
+
+  configure_uca_generate_checksum
+  configure_uca_verify_checksum
+}
+
+configure_folder_size_action() {
+  if ! command -v du >/dev/null 2>&1; then
+    log "'du' was not found on this system."
+    log "Skipping 'Calculate Folder Size' action."
+    return
+  fi
+
+  configure_uca_folder_size
 }
 
 usage() {
@@ -1087,14 +1626,23 @@ Usage: $(basename "$0") [OPTIONS]
 Installs Thunar, sets it as the default file manager, configures a
 keyboard shortcut to open it, points its "Open Terminal Here"
 action at a terminal emulator, adds a "Copy Location" action
-that copies a file or directory's full path to the clipboard, and
-adds "Extract Here" and "Extract Here (No Subfolder)" actions for
-extracting archives.
+that copies a file or directory's full path to the clipboard, a
+"Copy Name" action that copies a file or directory's name to the
+clipboard, and adds "Extract Here" and "Extract Here (No Subfolder)"
+actions for extracting archives, and a "Compress Here" action for
+compressing the selected files or folders into a new archive. Also
+adds "Generate Checksum" and "Verify Checksum" actions for creating
+and checking SHA-256 checksum files, and a "Calculate Folder Size"
+action for showing the total size of selected folders.
 
 Options:
   --terminal <name>   Explicitly select the terminal emulator to use for
                        Thunar's "Open Terminal Here" action (e.g. alacritty,
                        kitty, konsole). Takes precedence over THUNAR_TERMINAL.
+  --resetconfig        Remove this script's own managed Thunar custom actions
+                       from uca.xml before reconfiguring them from scratch
+                       (does not touch unrelated custom actions you may have
+                       added yourself).
   -h, --help           Show this help message and exit.
 
 Environment variables:
@@ -1117,6 +1665,10 @@ parse_args() {
         ;;
       --terminal=*)
         THUNAR_TERMINAL="${1#--terminal=}"
+        shift
+        ;;
+      --resetconfig)
+        RESET_CONFIG=1
         shift
         ;;
       -h | --help)
@@ -1145,6 +1697,8 @@ main() {
     exit 0
   fi
 
+  reset_uca_actions
+
   if confirm_configure_extras; then
     set_default_file_manager
     configure_shortcut
@@ -1154,7 +1708,10 @@ main() {
 
   configure_terminal
   configure_copy_location
+  configure_copy_name
   configure_extract_actions
+  configure_checksum_actions
+  configure_folder_size_action
 
   log "Done."
 }
