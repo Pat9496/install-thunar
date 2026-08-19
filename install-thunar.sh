@@ -562,7 +562,7 @@ confirm_configure_extras() {
   fi
 
   local reply
-  read -r -p "[install-thunar] Set Thunar as the default file manager, configure a keyboard shortcut, and set your terminal emulator for 'Open Terminal Here'? [Y/n] " reply
+  read -r -p "[install-thunar] Set Thunar as the default file manager, configure a keyboard shortcut, set your terminal emulator for 'Open Terminal Here', and add a 'Copy Location' action? [Y/n] " reply
   case "${reply,,}" in
     n | no) return 1 ;;
     *) return 0 ;;
@@ -595,6 +595,28 @@ detect_terminal_emulator() {
   done
 }
 
+detect_clipboard_tool() {
+  if [[ -n "${WAYLAND_DISPLAY:-}" ]] && command -v wl-copy >/dev/null 2>&1; then
+    echo "wl-copy"
+    return
+  fi
+
+  if command -v xclip >/dev/null 2>&1; then
+    echo "xclip"
+    return
+  fi
+
+  if command -v xsel >/dev/null 2>&1; then
+    echo "xsel"
+    return
+  fi
+
+  if command -v wl-copy >/dev/null 2>&1; then
+    echo "wl-copy"
+    return
+  fi
+}
+
 escape_xml() {
   local s="$1"
   s="${s//&/&amp;}"
@@ -612,6 +634,16 @@ build_terminal_command() {
     konsole) echo "${terminal} --workdir %f" ;;
     gnome-terminal | xfce4-terminal | terminator | tilix) echo "${terminal} --working-directory=%f" ;;
     urxvt) echo "${terminal} -cd %f" ;;
+    *) echo "" ;;
+  esac
+}
+
+build_clipboard_command() {
+  local tool="$1"
+  case "${tool}" in
+    xclip) echo "xclip -selection clipboard -in" ;;
+    xsel) echo "xsel --clipboard --input" ;;
+    wl-copy) echo "wl-copy" ;;
     *) echo "" ;;
   esac
 }
@@ -694,6 +726,83 @@ EOF
   fi
 }
 
+configure_uca_copy_location() {
+  local tool="$1"
+  local command="$2"
+
+  if [[ -z "${command}" ]]; then
+    log "No clipboard tool found (install xclip, xsel, or wl-clipboard); leaving Thunar's 'Copy Location' action untouched."
+    return
+  fi
+
+  local config_home="${XDG_CONFIG_HOME:-${HOME}/.config}"
+  local uca_dir="${config_home}/Thunar"
+  local uca_file="${uca_dir}/uca.xml"
+  local escaped_command
+  escaped_command=$(escape_xml "${command}")
+
+  mkdir -p "${uca_dir}"
+
+  local action_xml
+  action_xml=$(cat <<EOF
+<action>
+	<icon>edit-copy</icon>
+	<name>Copy Location</name>
+	<submenu></submenu>
+	<unique-id>$(date +%s%N)-2</unique-id>
+	<command>${escaped_command}</command>
+	<description>Copy the full path to the clipboard as plain text</description>
+	<range></range>
+	<patterns>*</patterns>
+	<directories/>
+</action>
+EOF
+  )
+
+  if [[ ! -f "${uca_file}" ]]; then
+    cat > "${uca_file}" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<actions>
+${action_xml}
+</actions>
+EOF
+    log "Created ${uca_file} with a 'Copy Location' action using: ${tool}"
+    chezmoi_track "${uca_file}"
+    return
+  fi
+
+  local tmpfile
+  tmpfile=$(mktemp)
+  if awk -v newcmd="${escaped_command}" '
+      /<action>/ { in_action = 1 }
+      in_action && /<name>Copy Location<\/name>/ { found_name = 1 }
+      in_action && found_name && /<command>/ && !replaced {
+        sub(/<command>.*<\/command>/, "<command>" newcmd "</command>")
+        replaced = 1
+      }
+      { print }
+      /<\/action>/ { in_action = 0; found_name = 0 }
+      END { if (replaced) exit 0; else exit 1 }
+    ' "${uca_file}" > "${tmpfile}"; then
+    mv "${tmpfile}" "${uca_file}"
+    log "Updated Thunar's existing 'Copy Location' action to use: ${tool}"
+    chezmoi_track "${uca_file}"
+    return
+  fi
+
+  rm -f "${tmpfile}"
+  if grep -q '</actions>' "${uca_file}"; then
+    local tmpfile2
+    tmpfile2=$(mktemp)
+    awk -v action="${action_xml}" '/<\/actions>/ { print action } { print }' "${uca_file}" > "${tmpfile2}"
+    mv "${tmpfile2}" "${uca_file}"
+    log "Added a new 'Copy Location' action to Thunar using: ${tool}"
+    chezmoi_track "${uca_file}"
+  else
+    log "${uca_file} exists but has no '</actions>' closing tag; leaving it untouched."
+  fi
+}
+
 configure_terminal() {
   local terminal
   terminal=$(detect_terminal_emulator)
@@ -754,7 +863,78 @@ EOF
   configure_uca_terminal "${terminal}" "${terminal_command}"
 }
 
+configure_copy_location() {
+  local tool
+  tool=$(detect_clipboard_tool)
+
+  if [[ -z "${tool}" ]]; then
+    log "No clipboard tool found (install xclip, xsel, or wl-clipboard)."
+    log "Skipping 'Copy Location' configuration."
+    return
+  fi
+
+  local clipboard_tail
+  clipboard_tail=$(build_clipboard_command "${tool}")
+
+  local copy_command
+  copy_command="bash -c 'printf %s \"\$1\" | ${clipboard_tail}' -- %f"
+
+  configure_uca_copy_location "${tool}" "${copy_command}"
+}
+
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") [OPTIONS]
+
+Installs Thunar, sets it as the default file manager, configures a
+keyboard shortcut to open it, points its "Open Terminal Here"
+action at a terminal emulator, and adds a "Copy Location" action
+that copies a file or directory's full path to the clipboard.
+
+Options:
+  --terminal <name>   Explicitly select the terminal emulator to use for
+                       Thunar's "Open Terminal Here" action (e.g. alacritty,
+                       kitty, konsole). Takes precedence over THUNAR_TERMINAL.
+  -h, --help           Show this help message and exit.
+
+Environment variables:
+  THUNAR_SHORTCUT   Keyboard shortcut to bind to Thunar (default: <Super>e).
+  THUNAR_TERMINAL   Terminal emulator to use for "Open Terminal Here".
+                     Overridden by --terminal if both are given.
+EOF
+}
+
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --terminal)
+        if [[ $# -lt 2 ]]; then
+          err "--terminal requires an argument."
+          exit 1
+        fi
+        THUNAR_TERMINAL="$2"
+        shift 2
+        ;;
+      --terminal=*)
+        THUNAR_TERMINAL="${1#--terminal=}"
+        shift
+        ;;
+      -h | --help)
+        usage
+        exit 0
+        ;;
+      *)
+        err "Unknown option: $1"
+        usage
+        exit 1
+        ;;
+    esac
+  done
+}
+
 main() {
+  parse_args "$@"
+
   log "Starting Thunar installation and configuration."
 
   install_thunar
@@ -769,8 +949,9 @@ main() {
     set_default_file_manager
     configure_shortcut
     configure_terminal
+    configure_copy_location
   else
-    log "Skipping default file manager, keyboard shortcut, and terminal emulator configuration at your request."
+    log "Skipping default file manager, keyboard shortcut, terminal emulator, and 'Copy Location' configuration at your request."
   fi
 
   log "Done."
