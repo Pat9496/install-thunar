@@ -562,7 +562,7 @@ confirm_configure_extras() {
   fi
 
   local reply
-  read -r -p "[install-thunar] Set Thunar as the default file manager, configure a keyboard shortcut, set your terminal emulator for 'Open Terminal Here', and add a 'Copy Location' action? [Y/n] " reply
+  read -r -p "[install-thunar] Set Thunar as the default file manager and configure a keyboard shortcut to open it? [Y/n] " reply
   case "${reply,,}" in
     n | no) return 1 ;;
     *) return 0 ;;
@@ -948,11 +948,12 @@ main() {
   if confirm_configure_extras; then
     set_default_file_manager
     configure_shortcut
-    configure_terminal
-    configure_copy_location
   else
-    log "Skipping default file manager, keyboard shortcut, terminal emulator, and 'Copy Location' configuration at your request."
+    log "Skipping default file manager and keyboard shortcut configuration at your request."
   fi
+
+  configure_terminal
+  configure_copy_location
 
   log "Done."
 }

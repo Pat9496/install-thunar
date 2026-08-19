@@ -23,7 +23,7 @@ A shell script that installs [Thunar](https://docs.xfce.org/xfce/thunar/start), 
 
 The script installs packages with `sudo` only when required; the rest runs as your normal user.
 
-After installing Thunar, if the script is running in an interactive terminal it asks whether to set Thunar as the default file manager, configure the keyboard shortcut, and configure the terminal emulator (`[Y/n]`, defaults to yes). When run non-interactively (e.g. `curl ... | bash`, or with stdin piped/redirected), it skips the prompt and proceeds automatically, same as before.
+After installing Thunar, if the script is running in an interactive terminal it asks whether to set Thunar as the default file manager and configure the keyboard shortcut (`[Y/n]`, defaults to yes). The configuration of the terminal emulator for "Open Terminal Here" and the "Copy Location" custom action always run, regardless of how you answer this prompt. When run non-interactively (e.g. `curl ... | bash`, or with stdin piped/redirected), it skips the prompt and applies the default (yes) to those two steps, while always running the terminal emulator and Copy Location configuration.
 
 ### Custom shortcut
 
