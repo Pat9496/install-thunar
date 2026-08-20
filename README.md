@@ -30,6 +30,7 @@ The name comes from *Thunar*, the Old Saxon name for the Germanic god of thunder
   - [Checksums](#checksums)
   - [Calculate Folder Size](#calculate-folder-size)
   - [Create Link](#create-link)
+  - [GVfs network backends (SMB/NFS)](#gvfs-network-backends-smbnfs)
 - [Supported package managers](#supported-package-managers)
 - [Supported desktop environments (keyboard shortcut)](#supported-desktop-environments-keyboard-shortcut)
 - [chezmoi integration](#chezmoi-integration)
@@ -51,6 +52,7 @@ See [Why Thunar](#why-thunar) if you're wondering why this script targets Thunar
 8. Adds "Generate Checksum" and "Verify Checksum" actions to Thunar for creating and verifying SHA-256 checksums of files.
 9. Adds a "Calculate Folder Size" action to Thunar to display the total recursive size of selected folders.
 10. Adds a "Create Link" action to Thunar that creates a symbolic link in a folder pointing to a file or folder you choose, with options for relative or absolute symlink paths.
+11. Detects missing GVfs SMB/NFS backends and, after asking for confirmation (or unconditionally with `--install-network-backends`/`--skip-network-backends`), installs them so Thunar's built-in "Network" location can actually mount `smb://` and `nfs://` shares instead of just showing discovered hosts with nothing to open.
 
 ## Usage
 
@@ -61,6 +63,8 @@ See [Why Thunar](#why-thunar) if you're wondering why this script targets Thunar
 The script installs packages with `sudo` only when required; the rest runs as your normal user.
 
 After installing Thunar, if the script is running in an interactive terminal it asks whether to set Thunar as the default file manager and configure the keyboard shortcut (`[Y/n]`, defaults to yes). The configuration of the terminal emulator for "Open Terminal Here", the "Copy Location Path" custom action, and the archive extraction actions always run, regardless of how you answer this prompt. When run non-interactively (e.g. `curl ... | bash`, or with stdin piped/redirected), it skips the prompt and applies the default (yes) to those two steps, while always running the terminal emulator, Copy Location Path, and archive extraction configuration.
+
+Separately, if GVfs's SMB or NFS network backend is missing, the script also asks (again `[Y/n]`, defaults to yes, skipped and defaulted to yes when non-interactive) whether to install it — see [GVfs network backends (SMB/NFS)](#gvfs-network-backends-smbnfs) below for how to skip or force this without a prompt.
 
 ### Resetting custom actions
 
@@ -182,6 +186,23 @@ The symlink is created with the name `link to <target-name>` (matching Thunar's 
 This action complements Thunar's own native "Make Link" and "Paste Link" features (right-click → Make Link, or Copy then Paste Link), which only ever create absolute-path symlinks. Use this custom action when you specifically want a relative-path symlink or want to link to a target without first copying it.
 
 If neither `zenity` nor `kdialog` is found, the script automatically installs one (`kdialog` on KDE Plasma, `zenity` on others) using the same package-manager detection as the Thunar install. On Fedora Atomic systems (detected via `rpm-ostree`), this layers the package and requires a reboot; re-run the script after rebooting to add the action. On other package managers, the install happens immediately. If the install fails or no supported package manager is found, this step is skipped gracefully and nothing is touched.
+
+### GVfs network backends (SMB/NFS)
+
+Thunar doesn't implement network browsing itself — it delegates SMB and NFS mounting to [GVfs](https://wiki.gnome.org/Projects/gvfs), and on many minimal or non-GNOME installs the SMB/NFS backends simply aren't installed. The symptom is Thunar's "Network" location showing a discovered host with nothing to open when you click into it. The script detects whether the SMB and NFS backends are already present and, if not:
+
+- In an interactive terminal, it asks first (`[Y/n]`, defaults to yes). When run non-interactively (e.g. `curl ... | bash`, or with stdin piped/redirected), it skips the prompt and installs them by default.
+- Pass `--install-network-backends` to always install them without asking, or `--skip-network-backends` to never install them and skip this step entirely without asking. Passing both together is an error.
+
+If it goes ahead, it installs them as follows:
+
+- On `apt-get` (Debian/Ubuntu), both backends ship in a single `gvfs-backends` package.
+- On `dnf`, `yum`, `pacman`, and `apk`, they're separate `gvfs-smb` and `gvfs-nfs` packages; only the missing one(s) are installed.
+- On `zypper` (openSUSE), only an SMB backend package (`gvfs-backend-samba`) is installed; there's no separately-packaged GVfs NFS backend for openSUSE, so that part is skipped.
+- On `xbps-install` (Void), only `gvfs-smb` is installed for the same reason — no GVfs NFS package exists for Void.
+- On Fedora Atomic systems (`rpm-ostree`), missing backends are layered, which requires a reboot before they become usable — the same "layer now, reboot later" pattern used for Thunar itself and for `zenity`/`kdialog`. If a package was already layered by a previous run (e.g. you re-ran the script before rebooting), that's treated as already done rather than as an error.
+
+If none of the supported package managers is found, this step is skipped gracefully and nothing is touched. This never affects NFS/SMB mounts made outside of Thunar (e.g. via `/etc/fstab` or a manual `mount` command).
 
 ## Supported package managers
 

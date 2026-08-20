@@ -21,10 +21,27 @@ run_as_root() {
   fi
 }
 
+rpm_ostree_install() {
+  local package="$1"
+  local output
+  if output=$(run_as_root rpm-ostree install -y "${package}" 2>&1); then
+    printf '%s\n' "${output}"
+    return 0
+  fi
+  if printf '%s\n' "${output}" | grep -qi "already requested"; then
+    log "${package} is already layered via rpm-ostree; nothing to do."
+    return 0
+  fi
+  printf '%s\n' "${output}" >&2
+  return 1
+}
+
 REBOOT_REQUIRED=0
 DIALOG_TOOL_REBOOT_REQUIRED=0
+GVFS_REBOOT_REQUIRED=0
 RESET_CONFIG=0
 RESET_ALL_ACTIONS=0
+GVFS_BACKENDS_MODE="ask"
 
 MANAGED_UCA_ACTIONS=(
   "Open Terminal Here"
@@ -220,7 +237,7 @@ install_thunar() {
 
   if command -v rpm-ostree >/dev/null 2>&1; then
     log "Detected rpm-ostree (Fedora Atomic / Silverblue / Kinoite / Bazzite). Layering thunar package."
-    run_as_root rpm-ostree install -y thunar
+    rpm_ostree_install thunar
     log "Thunar has been layered onto the system image."
     log "A REBOOT IS REQUIRED before Thunar will be usable."
     REBOOT_REQUIRED=1
@@ -259,6 +276,120 @@ install_thunar() {
   fi
 
   log "Thunar installed successfully."
+}
+
+confirm_install_gvfs_backends() {
+  if [[ ! -t 0 ]]; then
+    return 0
+  fi
+
+  local reply
+  read -r -p "[install-thunar] Install missing GVfs network backend(s) (SMB/NFS) so Thunar's Network browsing can mount shares? [Y/n] " reply
+  case "${reply,,}" in
+    n | no) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+install_gvfs_network_backends() {
+  local -a xdg_dirs=()
+  local -a data_dirs=()
+  IFS=':' read -ra xdg_dirs <<< "${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+  data_dirs+=("${XDG_DATA_HOME:-${HOME}/.local/share}" "${xdg_dirs[@]}" "/usr/local/share" "/usr/share")
+
+  local smb_found=0
+  local nfs_found=0
+  local dir
+  for dir in "${data_dirs[@]}"; do
+    if [[ "${smb_found}" -eq 0 && -f "${dir}/gvfs/mounts/smb.mount" ]]; then
+      smb_found=1
+    fi
+    if [[ "${nfs_found}" -eq 0 && -f "${dir}/gvfs/mounts/nfs.mount" ]]; then
+      nfs_found=1
+    fi
+  done
+
+  if [[ "${smb_found}" -eq 1 && "${nfs_found}" -eq 1 ]]; then
+    log "GVfs SMB and NFS network backends are already installed."
+    return
+  fi
+
+  if [[ "${GVFS_BACKENDS_MODE}" == "never" ]]; then
+    log "Skipping GVfs network backend installation (--skip-network-backends)."
+    return
+  elif [[ "${GVFS_BACKENDS_MODE}" == "ask" ]]; then
+    if ! confirm_install_gvfs_backends; then
+      log "Skipping GVfs network backend installation at your request."
+      return
+    fi
+  fi
+
+  log "GVfs network backend(s) missing. Detecting package manager..."
+
+  if command -v rpm-ostree >/dev/null 2>&1; then
+    log "Detected rpm-ostree (Fedora Atomic / Silverblue / Kinoite / Bazzite)."
+    if [[ "${smb_found}" -eq 0 ]]; then
+      log "Layering gvfs-smb package."
+      rpm_ostree_install gvfs-smb
+      GVFS_REBOOT_REQUIRED=1
+    fi
+    if [[ "${nfs_found}" -eq 0 ]]; then
+      log "Layering gvfs-nfs package."
+      rpm_ostree_install gvfs-nfs
+      GVFS_REBOOT_REQUIRED=1
+    fi
+    log "A REBOOT IS REQUIRED before the layered GVfs network backend(s) will be usable."
+    return
+  elif command -v apt-get >/dev/null 2>&1; then
+    log "Detected apt-get (Debian/Ubuntu). Installing gvfs-backends."
+    run_as_root apt-get update
+    run_as_root apt-get install -y gvfs-backends
+  elif command -v dnf >/dev/null 2>&1; then
+    local -a packages=()
+    [[ "${smb_found}" -eq 0 ]] && packages+=("gvfs-smb")
+    [[ "${nfs_found}" -eq 0 ]] && packages+=("gvfs-nfs")
+    log "Detected dnf (Fedora/RHEL/CentOS). Installing ${packages[*]}."
+    run_as_root dnf install -y "${packages[@]}"
+  elif command -v yum >/dev/null 2>&1; then
+    local -a packages=()
+    [[ "${smb_found}" -eq 0 ]] && packages+=("gvfs-smb")
+    [[ "${nfs_found}" -eq 0 ]] && packages+=("gvfs-nfs")
+    log "Detected yum (RHEL/CentOS). Installing ${packages[*]}."
+    run_as_root yum install -y "${packages[@]}"
+  elif command -v pacman >/dev/null 2>&1; then
+    local -a packages=()
+    [[ "${smb_found}" -eq 0 ]] && packages+=("gvfs-smb")
+    [[ "${nfs_found}" -eq 0 ]] && packages+=("gvfs-nfs")
+    log "Detected pacman (Arch). Installing ${packages[*]}."
+    run_as_root pacman -Syu --noconfirm "${packages[@]}"
+  elif command -v zypper >/dev/null 2>&1; then
+    if [[ "${smb_found}" -eq 0 ]]; then
+      log "Detected zypper (openSUSE). Installing gvfs-backend-samba."
+      run_as_root zypper --non-interactive install gvfs-backend-samba
+    fi
+    if [[ "${nfs_found}" -eq 0 ]]; then
+      log "No separately-packaged GVfs NFS backend is known for zypper/openSUSE; skipping."
+    fi
+  elif command -v apk >/dev/null 2>&1; then
+    local -a packages=()
+    [[ "${smb_found}" -eq 0 ]] && packages+=("gvfs-smb")
+    [[ "${nfs_found}" -eq 0 ]] && packages+=("gvfs-nfs")
+    log "Detected apk (Alpine). Installing ${packages[*]}."
+    run_as_root apk add "${packages[@]}"
+  elif command -v xbps-install >/dev/null 2>&1; then
+    if [[ "${smb_found}" -eq 0 ]]; then
+      log "Detected xbps-install (Void). Installing gvfs-smb."
+      run_as_root xbps-install -Sy gvfs-smb
+    fi
+    if [[ "${nfs_found}" -eq 0 ]]; then
+      log "No GVfs NFS backend package is known for Void/xbps; skipping."
+    fi
+  else
+    log "No supported package manager found to install GVfs network backends automatically."
+    return
+  fi
+
+  log "GVfs network backend installation step complete."
 }
 
 set_default_file_manager() {
@@ -659,7 +790,7 @@ install_dialog_tool() {
 
   if command -v rpm-ostree >/dev/null 2>&1; then
     log "Detected rpm-ostree (Fedora Atomic / Silverblue / Kinoite / Bazzite). Layering ${package} package."
-    run_as_root rpm-ostree install -y "${package}"
+    rpm_ostree_install "${package}"
     log "${package} has been layered onto the system image."
     log "A REBOOT IS REQUIRED before the 'Create Link' action will be usable."
     DIALOG_TOOL_REBOOT_REQUIRED=1
@@ -1802,6 +1933,11 @@ zenity or kdialog automatically depending on the detected desktop
 environment (GNOME and other desktop environments get zenity, KDE
 Plasma gets kdialog; on Fedora Atomic systems this layers the
 package and requires a reboot before the action becomes usable).
+Also ensures GVfs's SMB and NFS network browsing backends are
+installed, so Thunar's "Network" location can actually mount
+smb:// and nfs:// shares. Asks for confirmation before installing
+them unless --install-network-backends or --skip-network-backends
+is given.
 
 Options:
   --terminal <name>   Explicitly select the terminal emulator to use for
@@ -1816,6 +1952,12 @@ Options:
                        elsewhere, before reconfiguring this script's own
                        actions from scratch. Nothing else (keyboard shortcut,
                        terminal helper files, etc.) is touched.
+  --install-network-backends
+                       Always install missing GVfs SMB/NFS network
+                       backends without prompting.
+  --skip-network-backends
+                       Never install GVfs SMB/NFS network backends;
+                       skip that step entirely without prompting.
   -h, --help           Show this help message and exit.
 
 Environment variables:
@@ -1848,6 +1990,22 @@ parse_args() {
         RESET_ALL_ACTIONS=1
         shift
         ;;
+      --install-network-backends)
+        if [[ "${GVFS_BACKENDS_MODE}" != "ask" && "${GVFS_BACKENDS_MODE}" != "always" ]]; then
+          err "Cannot combine --install-network-backends and --skip-network-backends."
+          exit 1
+        fi
+        GVFS_BACKENDS_MODE="always"
+        shift
+        ;;
+      --skip-network-backends)
+        if [[ "${GVFS_BACKENDS_MODE}" != "ask" && "${GVFS_BACKENDS_MODE}" != "never" ]]; then
+          err "Cannot combine --install-network-backends and --skip-network-backends."
+          exit 1
+        fi
+        GVFS_BACKENDS_MODE="never"
+        shift
+        ;;
       -h | --help)
         usage
         exit 0
@@ -1867,6 +2025,7 @@ main() {
   log "Starting Thunar installation and configuration."
 
   install_thunar
+  install_gvfs_network_backends
 
   if [[ "${REBOOT_REQUIRED}" -eq 1 ]]; then
     log "Reboot before continuing: Thunar was layered via rpm-ostree and is not usable yet."
@@ -1896,6 +2055,10 @@ main() {
 
   if [[ "${DIALOG_TOOL_REBOOT_REQUIRED}" -eq 1 ]]; then
     log "Reboot required: zenity was layered via rpm-ostree. After rebooting, re-run this script to finish adding the 'Create Link' action."
+  fi
+
+  if [[ "${GVFS_REBOOT_REQUIRED}" -eq 1 ]]; then
+    log "Reboot required: one or more GVfs network backends were layered via rpm-ostree. After rebooting, Thunar's Network browsing will be able to mount smb:// and/or nfs:// shares."
   fi
 
   log "Done."

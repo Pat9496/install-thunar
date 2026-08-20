@@ -30,6 +30,7 @@ Der Name stammt von *Thunar*, dem altsächsischen Namen für den germanischen Go
   - [Prüfsummen](#prüfsummen)
   - [Ordnergröße berechnen](#ordnergröße-berechnen)
   - [Create Link](#create-link)
+  - [GVfs network backends (SMB/NFS)](#gvfs-network-backends-smbnfs)
 - [Unterstützte Paketmanager](#unterstützte-paketmanager)
 - [Unterstützte Desktop-Umgebungen (Tastaturkombination)](#unterstützte-desktop-umgebungen-tastaturkombination)
 - [chezmoi-Integration](#chezmoi-integration)
@@ -51,6 +52,7 @@ Siehe [Warum Thunar](#warum-thunar), um zu erfahren, warum dieses Skript speziel
 8. Fügt Aktionen für Prüfsummen hinzu: „Generate Checksum" zum Erstellen von SHA-256-Prüfsummendateien und „Verify Checksum" zum Verifizieren derselben.
 9. Fügt eine Aktion „Calculate Folder Size" zu Thunar hinzu, die die rekursive Gesamtgröße ausgewählter Ordner berechnet und anzeigt.
 10. Fügt eine Aktion „Create Link" zu Thunar hinzu, um symbolische Links mit Optionen für relative oder absolute Pfade zu erstellen (benötigt ein Dialog-Werkzeug wie `zenity` oder `kdialog`).
+11. Erkennt fehlende GVfs SMB-/NFS-Backends und installiert sie nach einer Bestätigung (oder bedingungslos mit `--install-network-backends`/`--skip-network-backends`), damit die integrierte „Network"-Funktion von Thunar tatsächlich `smb://`- und `nfs://`-Freigaben einbinden kann, anstatt einfach erkannte Hosts anzuzeigen, die sich nicht öffnen lassen.
 
 ## Verwendung
 
@@ -61,6 +63,8 @@ Siehe [Warum Thunar](#warum-thunar), um zu erfahren, warum dieses Skript speziel
 Das Skript installiert Pakete mit `sudo` nur bei Bedarf; der Rest wird als normaler Benutzer ausgeführt.
 
 Nach der Installation von Thunar fragt das Skript in einem interaktiven Terminal, ob Thunar als Standard-Dateiverwaltung festgelegt und die Tastaturkombination konfiguriert werden sollen (`[Y/n]`, Standard ist Ja). Die Konfiguration des Terminal-Emulators für „Open Terminal Here", die Aktion „Copy Location Path" und die Aktionen zur Archivextraktion laufen immer ab, unabhängig davon, wie diese Eingabe beantwortet wird. Bei nicht-interaktiver Ausführung (z. B. `curl ... | bash` oder mit umgeleiteter/weitergeleiteter Standardeingabe) wird die Eingabeaufforderung übersprungen und die Standardwerte (Ja) für diese zwei Schritte angewendet, während die Konfiguration des Terminal-Emulators, Copy Location und die Archive-Extraktion immer laufen.
+
+Falls das GVfs SMB- oder NFS-Backend fehlt, fragt das Skript ebenfalls danach (`[Y/n]`, Standard ist Ja, bei nicht-interaktiver Ausführung übersprungen und Standard ist Ja), ob es installiert werden soll – siehe [GVfs network backends (SMB/NFS)](#gvfs-network-backends-smbnfs) weiter unten, um zu erfahren, wie dies ohne Nachfrage übersprungen oder erzwungen wird.
 
 ### Konfiguration zurücksetzen
 
@@ -179,6 +183,23 @@ Der neue Link wird im Zielordner mit dem Namen `link to <Zielname>` erstellt (wo
 Bei manueller Pfadeingabe wird ein relativer Pfad relativ zum Zielordner aufgelöst; ein absoluter Pfad wird wie angegeben verwendet. In beiden Fällen wird der Pfad vor der Erstellung zu einem existierenden Ziel aufgelöst – existiert das Ziel nicht, wird kein Link erstellt. Im „Relativ"-Modus wird ein echter relativer Pfad vom Zielordner zum Linkziel berechnet (mittels `realpath --relative-to`), der auf einen beliebigen Ort im Dateisystem verweisen kann.
 
 Das Skript installiert automatisch ein Dialog-Werkzeug, falls weder `zenity` noch `kdialog` vorhanden sind: KDE Plasma erhält `kdialog`, GNOME und andere Desktop-Umgebungen erhalten `zenity`. Die Installation erfolgt unter Verwendung der gleichen Paketmanager-Erkennungskette wie die Thunar-Installation. Auf Fedora-Atomic-Systemen wird das Paket auf das Systemabbild aufgeschichtet und ist erst nach einem Neustart verfügbar – das Skript gibt einen Hinweis am Ende aus, und eine erneute Ausführung nach dem Neustart ist erforderlich. Bei anderen Paketmanagern erfolgt die Installation sofort und sollte im selben Lauf nutzbar sein. Wird kein unterstützter Paketmanager gefunden oder schlägt die Installation fehl, wird diese Aktion übersprungen. Dies ist eine bewusste Ausnahme von der sonstigen Philosophie des Skripts – nur Thunar selbst und dieses Dialog-Werkzeug werden automatisch installiert.
+
+### GVfs network backends (SMB/NFS)
+
+Thunar implementiert Netzwerk-Browsing nicht selbst – es delegiert SMB- und NFS-Einbindungen an [GVfs](https://wiki.gnome.org/Projects/gvfs), und auf vielen minimalen oder nicht-GNOME-Installationen sind die SMB-/NFS-Backends einfach nicht installiert. Das Symptom ist, dass die „Network"-Funktion von Thunar einen erkannten Host zeigt, aber nichts zu öffnen hat, wenn man darauf klickt. Das Skript erkennt, ob die SMB- und NFS-Backends bereits vorhanden sind, und, falls nicht:
+
+- Bei Ausführung in einem interaktiven Terminal fragt es zuerst nach (`[Y/n]`, Standard ist Ja). Bei nicht-interaktiver Ausführung (z. B. `curl ... | bash` oder mit umgeleiteter/weitergeleiteter Standardeingabe) wird die Eingabeaufforderung übersprungen und die Installation erfolgt standardmäßig.
+- Mit `--install-network-backends` werden sie immer ohne Nachfrage installiert; mit `--skip-network-backends` wird dieser Schritt ganz übersprungen und nichts wird installiert. Das Übergeben beider Flags zusammen ist ein Fehler.
+
+Falls das Skript fortfährt, installiert es sie wie folgt:
+
+- Unter `apt-get` (Debian/Ubuntu) werden beide Backends in einem einzigen `gvfs-backends`-Paket ausgeliefert.
+- Unter `dnf`, `yum`, `pacman` und `apk` sind es separate `gvfs-smb`- und `gvfs-nfs`-Pakete; nur die fehlenden werden installiert.
+- Unter `zypper` (openSUSE) wird nur ein SMB-Backend-Paket (`gvfs-backend-samba`) installiert; es gibt kein separat verpacktes GVfs-NFS-Backend für openSUSE, daher wird dieser Teil übersprungen.
+- Unter `xbps-install` (Void) wird nur `gvfs-smb` installiert aus demselben Grund – es gibt kein GVfs-NFS-Paket für Void.
+- Auf Fedora-Atomic-Systemen (`rpm-ostree`) werden fehlende Backends aufgeschichtet, was einen Neustart erforderlich macht, bevor sie nutzbar werden – das gleiche „Aufschichten jetzt, Neustart später"-Muster wie für Thunar selbst und für `zenity`/`kdialog`. Falls ein Paket bereits von einem früheren Lauf aufgeschichtet wurde (z. B. falls das Skript vor einem Neustart erneut ausgeführt wurde), wird das als bereits erledigt behandelt, nicht als Fehler.
+
+Falls keiner der unterstützten Paketmanager gefunden wird, wird dieser Schritt elegant übersprungen und nichts verändert. Dies beeinflusst niemals NFS-/SMB-Einbindungen außerhalb von Thunar (z. B. über `/etc/fstab` oder einen manuellen `mount`-Befehl).
 
 ## Unterstützte Paketmanager
 
