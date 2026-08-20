@@ -13,6 +13,8 @@ A shell script that installs [Thunar](https://docs.xfce.org/xfce/thunar/start), 
 
 Thunar is the default file manager of the [Xfce](https://www.xfce.org/) desktop, but it runs perfectly well as a standalone GTK application on any desktop environment, without pulling in the rest of Xfce. Compared to heavier alternatives like GNOME Files (Nautilus) or Dolphin, it starts fast and stays light on memory, while still covering the essentials: tabs, split view, bulk rename, thumbnails, and a built-in [custom actions](https://docs.xfce.org/xfce/thunar/custom-actions) system that lets you add arbitrary right-click commands — exactly the mechanism this script uses to add its terminal, clipboard, archive, checksum, and symlink actions. If you want a file manager that's quick to open, easy on resources, and scriptable without needing a whole desktop environment around it, Thunar is a solid choice regardless of which DE you actually use.
 
+The name comes from *Thunar*, the Old Saxon name for [Thor](https://en.wikipedia.org/wiki/Thor), the Germanic god of thunder — fittingly, its icon is Thor's hammer, Mjölnir.
+
 ## Table of Contents
 
 - [Why Thunar](#why-thunar)

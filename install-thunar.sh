@@ -766,7 +766,6 @@ reset_all_uca_actions() {
   log "Removed all custom actions (including any not managed by this script) from ${uca_file}."
   log "This script's own actions will be recreated below; nothing else in your Thunar or desktop configuration was touched."
 
-  chezmoi_track "${uca_file}"
 }
 
 reset_uca_actions() {
@@ -839,7 +838,6 @@ reset_uca_actions() {
     log "Reset '${action}' action (will be recreated)."
   done
 
-  chezmoi_track "${uca_file}"
 }
 
 configure_uca_terminal() {
@@ -884,7 +882,6 @@ ${action_xml}
 </actions>
 EOF
     log "Created ${uca_file} with an 'Open Terminal Here' action using: ${command}"
-    chezmoi_track "${uca_file}"
     return
   fi
 
@@ -905,7 +902,6 @@ EOF
     ' "${uca_file}" > "${tmpfile}"; then
     mv "${tmpfile}" "${uca_file}"
     log "Updated Thunar's existing 'Open Terminal Here' action to use: ${command}"
-    chezmoi_track "${uca_file}"
     return
   fi
 
@@ -916,7 +912,6 @@ EOF
     awk -v action="${action_xml}" '/<\/actions>/ { print action } { print }' "${uca_file}" > "${tmpfile2}"
     mv "${tmpfile2}" "${uca_file}"
     log "Added a new 'Open Terminal Here' action to Thunar using: ${command}"
-    chezmoi_track "${uca_file}"
   else
     log "${uca_file} exists but has no '</actions>' closing tag; leaving it untouched."
   fi
@@ -968,7 +963,6 @@ ${action_xml}
 </actions>
 EOF
     log "Created ${uca_file} with a 'Copy Location Path' action using: ${tool}"
-    chezmoi_track "${uca_file}"
     return
   fi
 
@@ -1002,7 +996,6 @@ EOF
     ' "${uca_file}" > "${tmpfile}"; then
     mv "${tmpfile}" "${uca_file}"
     log "Updated Thunar's existing 'Copy Location Path' action to use: ${tool}"
-    chezmoi_track "${uca_file}"
     return
   fi
 
@@ -1013,7 +1006,6 @@ EOF
     awk -v action="${action_xml}" '/<\/actions>/ { print action } { print }' "${uca_file}" > "${tmpfile2}"
     mv "${tmpfile2}" "${uca_file}"
     log "Added a new 'Copy Location Path' action to Thunar using: ${tool}"
-    chezmoi_track "${uca_file}"
   else
     log "${uca_file} exists but has no '</actions>' closing tag; leaving it untouched."
   fi
@@ -1065,7 +1057,6 @@ ${action_xml}
 </actions>
 EOF
     log "Created ${uca_file} with a 'Copy File/Folder Name' action using: ${tool}"
-    chezmoi_track "${uca_file}"
     return
   fi
 
@@ -1099,7 +1090,6 @@ EOF
     ' "${uca_file}" > "${tmpfile}"; then
     mv "${tmpfile}" "${uca_file}"
     log "Updated Thunar's existing 'Copy File/Folder Name' action to use: ${tool}"
-    chezmoi_track "${uca_file}"
     return
   fi
 
@@ -1110,7 +1100,6 @@ EOF
     awk -v action="${action_xml}" '/<\/actions>/ { print action } { print }' "${uca_file}" > "${tmpfile2}"
     mv "${tmpfile2}" "${uca_file}"
     log "Added a new 'Copy File/Folder Name' action to Thunar using: ${tool}"
-    chezmoi_track "${uca_file}"
   else
     log "${uca_file} exists but has no '</actions>' closing tag; leaving it untouched."
   fi
@@ -1158,7 +1147,6 @@ ${action_xml}
 </actions>
 EOF
     log "Created ${uca_file} with an 'Extract Here' action."
-    chezmoi_track "${uca_file}"
     return
   fi
 
@@ -1178,7 +1166,6 @@ EOF
     ' "${uca_file}" > "${tmpfile}"; then
     mv "${tmpfile}" "${uca_file}"
     log "Updated Thunar's existing 'Extract Here' action."
-    chezmoi_track "${uca_file}"
     return
   fi
 
@@ -1189,7 +1176,6 @@ EOF
     awk -v action="${action_xml}" '/<\/actions>/ { print action } { print }' "${uca_file}" > "${tmpfile2}"
     mv "${tmpfile2}" "${uca_file}"
     log "Added a new 'Extract Here' action to Thunar."
-    chezmoi_track "${uca_file}"
   else
     log "${uca_file} exists but has no '</actions>' closing tag; leaving it untouched."
   fi
@@ -1237,7 +1223,6 @@ ${action_xml}
 </actions>
 EOF
     log "Created ${uca_file} with an 'Extract Here (No Subfolder)' action."
-    chezmoi_track "${uca_file}"
     return
   fi
 
@@ -1257,7 +1242,6 @@ EOF
     ' "${uca_file}" > "${tmpfile}"; then
     mv "${tmpfile}" "${uca_file}"
     log "Updated Thunar's existing 'Extract Here (No Subfolder)' action."
-    chezmoi_track "${uca_file}"
     return
   fi
 
@@ -1268,7 +1252,6 @@ EOF
     awk -v action="${action_xml}" '/<\/actions>/ { print action } { print }' "${uca_file}" > "${tmpfile2}"
     mv "${tmpfile2}" "${uca_file}"
     log "Added a new 'Extract Here (No Subfolder)' action to Thunar."
-    chezmoi_track "${uca_file}"
   else
     log "${uca_file} exists but has no '</actions>' closing tag; leaving it untouched."
   fi
@@ -1317,7 +1300,6 @@ ${action_xml}
 </actions>
 EOF
     log "Created ${uca_file} with a 'Compress Here' action."
-    chezmoi_track "${uca_file}"
     return
   fi
 
@@ -1337,7 +1319,6 @@ EOF
     ' "${uca_file}" > "${tmpfile}"; then
     mv "${tmpfile}" "${uca_file}"
     log "Updated Thunar's existing 'Compress Here' action."
-    chezmoi_track "${uca_file}"
     return
   fi
 
@@ -1348,7 +1329,6 @@ EOF
     awk -v action="${action_xml}" '/<\/actions>/ { print action } { print }' "${uca_file}" > "${tmpfile2}"
     mv "${tmpfile2}" "${uca_file}"
     log "Added a new 'Compress Here' action to Thunar."
-    chezmoi_track "${uca_file}"
   else
     log "${uca_file} exists but has no '</actions>' closing tag; leaving it untouched."
   fi
@@ -1396,7 +1376,6 @@ ${action_xml}
 </actions>
 EOF
     log "Created ${uca_file} with a 'Generate Checksum' action."
-    chezmoi_track "${uca_file}"
     return
   fi
 
@@ -1416,7 +1395,6 @@ EOF
     ' "${uca_file}" > "${tmpfile}"; then
     mv "${tmpfile}" "${uca_file}"
     log "Updated Thunar's existing 'Generate Checksum' action."
-    chezmoi_track "${uca_file}"
     return
   fi
 
@@ -1427,7 +1405,6 @@ EOF
     awk -v action="${action_xml}" '/<\/actions>/ { print action } { print }' "${uca_file}" > "${tmpfile2}"
     mv "${tmpfile2}" "${uca_file}"
     log "Added a new 'Generate Checksum' action to Thunar."
-    chezmoi_track "${uca_file}"
   else
     log "${uca_file} exists but has no '</actions>' closing tag; leaving it untouched."
   fi
@@ -1475,7 +1452,6 @@ ${action_xml}
 </actions>
 EOF
     log "Created ${uca_file} with a 'Verify Checksum' action."
-    chezmoi_track "${uca_file}"
     return
   fi
 
@@ -1495,7 +1471,6 @@ EOF
     ' "${uca_file}" > "${tmpfile}"; then
     mv "${tmpfile}" "${uca_file}"
     log "Updated Thunar's existing 'Verify Checksum' action."
-    chezmoi_track "${uca_file}"
     return
   fi
 
@@ -1506,7 +1481,6 @@ EOF
     awk -v action="${action_xml}" '/<\/actions>/ { print action } { print }' "${uca_file}" > "${tmpfile2}"
     mv "${tmpfile2}" "${uca_file}"
     log "Added a new 'Verify Checksum' action to Thunar."
-    chezmoi_track "${uca_file}"
   else
     log "${uca_file} exists but has no '</actions>' closing tag; leaving it untouched."
   fi
@@ -1550,7 +1524,6 @@ ${action_xml}
 </actions>
 EOF
     log "Created ${uca_file} with a 'Calculate Folder Size' action."
-    chezmoi_track "${uca_file}"
     return
   fi
 
@@ -1570,7 +1543,6 @@ EOF
     ' "${uca_file}" > "${tmpfile}"; then
     mv "${tmpfile}" "${uca_file}"
     log "Updated Thunar's existing 'Calculate Folder Size' action."
-    chezmoi_track "${uca_file}"
     return
   fi
 
@@ -1581,7 +1553,6 @@ EOF
     awk -v action="${action_xml}" '/<\/actions>/ { print action } { print }' "${uca_file}" > "${tmpfile2}"
     mv "${tmpfile2}" "${uca_file}"
     log "Added a new 'Calculate Folder Size' action to Thunar."
-    chezmoi_track "${uca_file}"
   else
     log "${uca_file} exists but has no '</actions>' closing tag; leaving it untouched."
   fi
@@ -1625,7 +1596,6 @@ ${action_xml}
 </actions>
 EOF
     log "Created ${uca_file} with a 'Create Link' action."
-    chezmoi_track "${uca_file}"
     return
   fi
 
@@ -1645,7 +1615,6 @@ EOF
     ' "${uca_file}" > "${tmpfile}"; then
     mv "${tmpfile}" "${uca_file}"
     log "Updated Thunar's existing 'Create Link' action."
-    chezmoi_track "${uca_file}"
     return
   fi
 
@@ -1656,7 +1625,6 @@ EOF
     awk -v action="${action_xml}" '/<\/actions>/ { print action } { print }' "${uca_file}" > "${tmpfile2}"
     mv "${tmpfile2}" "${uca_file}"
     log "Added a new 'Create Link' action to Thunar."
-    chezmoi_track "${uca_file}"
   else
     log "${uca_file} exists but has no '</actions>' closing tag; leaving it untouched."
   fi
@@ -1923,6 +1891,8 @@ main() {
   configure_checksum_actions
   configure_folder_size_action
   configure_create_link
+
+  chezmoi_track "${XDG_CONFIG_HOME:-${HOME}/.config}/Thunar/uca.xml"
 
   if [[ "${DIALOG_TOOL_REBOOT_REQUIRED}" -eq 1 ]]; then
     log "Reboot required: zenity was layered via rpm-ostree. After rebooting, re-run this script to finish adding the 'Create Link' action."
