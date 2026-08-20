@@ -13,7 +13,7 @@ Ein Shell-Skript, das [Thunar](https://docs.xfce.org/xfce/thunar/start) installi
 
 Thunar ist die Standard-Dateiverwaltung des [Xfce](https://www.xfce.org/)-Desktops, aber es funktioniert perfekt als eigenständige GTK-Anwendung auf jeder Desktop-Umgebung, ohne den Rest von Xfce zu laden. Im Vergleich zu schwereren Alternativen wie GNOME Files (Nautilus) oder Dolphin startet es schnell und bleibt speichereffizient, während es immer noch das Wesentliche bietet: Registerblätter, geteilte Ansicht, Umbenennungen in Masse, Miniaturbilder und ein integriertes [custom actions](https://docs.xfce.org/xfce/thunar/custom-actions)-System, das es ermöglicht, beliebige Kontextmenü-Befehle hinzuzufügen – genau der Mechanismus, den dieses Skript nutzt, um seine Terminal-, Zwischenablage-, Archiv-, Prüfsummen- und Symlink-Aktionen hinzuzufügen. Falls die gewünschte Dateiverwaltung schnell öffnen, ressourcenschonend und skriptbar ohne Notwendigkeit einer ganzen Desktop-Umgebung sein soll, ist Thunar eine solide Wahl, unabhängig davon, welche DE tatsächlich verwendet wird.
 
-Der Name stammt von *Thunar*, dem altsächsischen Namen für [Thor](https://en.wikipedia.org/wiki/Thor), den germanischen Gott des Donners – passenderweise ist sein Symbol Thors Hammer Mjölnir.
+Der Name stammt von *Thunar*, dem altsächsischen Namen für den germanischen Gott des Donners – dieselbe Figur, die im Althochdeutschen als Donar und, heutzutage verbreiteter, im Altnordischen als [Thor](https://en.wikipedia.org/wiki/Thor) bekannt ist – passenderweise ist sein Symbol Thors Hammer Mjölnir.
 
 ## Inhaltsverzeichnis
 
