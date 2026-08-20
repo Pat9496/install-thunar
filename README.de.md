@@ -9,8 +9,13 @@ Ein Shell-Skript, das [Thunar](https://docs.xfce.org/xfce/thunar/start) installi
 
 [English](README.md) | **Deutsch**
 
+## Warum Thunar
+
+Thunar ist die Standard-Dateiverwaltung des [Xfce](https://www.xfce.org/)-Desktops, aber es funktioniert perfekt als eigenständige GTK-Anwendung auf jeder Desktop-Umgebung, ohne den Rest von Xfce zu laden. Im Vergleich zu schwereren Alternativen wie GNOME Files (Nautilus) oder Dolphin startet es schnell und bleibt speichereffizient, während es immer noch das Wesentliche bietet: Registerblätter, geteilte Ansicht, Umbenennungen in Masse, Miniaturbilder und ein integriertes [custom actions](https://docs.xfce.org/xfce/thunar/custom-actions)-System, das es ermöglicht, beliebige Kontextmenü-Befehle hinzuzufügen – genau der Mechanismus, den dieses Skript nutzt, um seine Terminal-, Zwischenablage-, Archiv-, Prüfsummen- und Symlink-Aktionen hinzuzufügen. Falls die gewünschte Dateiverwaltung schnell öffnen, ressourcenschonend und skriptbar ohne Notwendigkeit einer ganzen Desktop-Umgebung sein soll, ist Thunar eine solide Wahl, unabhängig davon, welche DE tatsächlich verwendet wird.
+
 ## Inhaltsverzeichnis
 
+- [Warum Thunar](#warum-thunar)
 - [Was das Skript tut](#was-das-skript-tut)
 - [Verwendung](#verwendung)
   - [Konfiguration zurücksetzen](#konfiguration-zurücksetzen)
@@ -31,6 +36,8 @@ Ein Shell-Skript, das [Thunar](https://docs.xfce.org/xfce/thunar/start) installi
 - [Urheber](#urheber)
 
 ## Was das Skript tut
+
+Siehe [Warum Thunar](#warum-thunar), um zu erfahren, warum dieses Skript speziell Thunar nutzt.
 
 1. Erkennt den Paketmanager und installiert Thunar, falls noch nicht vorhanden (einschließlich Fedora Atomic-Varianten wie Silverblue, Kinoite und Bazzite über `rpm-ostree`).
 2. Legt Thunar als Standard-Handler für Verzeichnisse fest (`xdg-mime default thunar.desktop inode/directory`).
@@ -70,6 +77,14 @@ Das Flag lässt sich normal mit anderen Flags und Umgebungsvariablen kombinieren
 ```bash
 ./install-thunar.sh --resetconfig --terminal alacritty
 ```
+
+Falls lieber *jede* benutzerdefinierte Aktion in `uca.xml` gelöscht werden soll – einschließlich solcher, die selbst hinzugefügt wurden oder von anderswo stammten, nicht nur die, die dieses Skript verwaltet – wird stattdessen `--reset-all-actions` verwendet:
+
+```bash
+./install-thunar.sh --reset-all-actions
+```
+
+Dies löscht jeden `<action>`-Eintrag in `~/.config/Thunar/uca.xml` und führt das Skript dann normal aus, damit seine 10 Aktionen neu erstellt werden. Nichts anderes wird angerührt – die Tastaturkombination, die Standard-Dateiverwaltungs-Einstellung und die Terminal-Helferdateien werden alle exakt wie sie sind belassen. Wie `--resetconfig` ist die Verwendung sicher, auch wenn `uca.xml` noch nicht existiert, und es lässt sich normal mit anderen Flags kombinieren (z. B. `./install-thunar.sh --reset-all-actions --terminal alacritty`).
 
 ### Benutzerdefinierte Tastaturkombination
 

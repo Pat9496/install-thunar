@@ -9,8 +9,13 @@ A shell script that installs [Thunar](https://docs.xfce.org/xfce/thunar/start), 
 
 **English** | [Deutsch](README.de.md)
 
+## Why Thunar
+
+Thunar is the default file manager of the [Xfce](https://www.xfce.org/) desktop, but it runs perfectly well as a standalone GTK application on any desktop environment, without pulling in the rest of Xfce. Compared to heavier alternatives like GNOME Files (Nautilus) or Dolphin, it starts fast and stays light on memory, while still covering the essentials: tabs, split view, bulk rename, thumbnails, and a built-in [custom actions](https://docs.xfce.org/xfce/thunar/custom-actions) system that lets you add arbitrary right-click commands — exactly the mechanism this script uses to add its terminal, clipboard, archive, checksum, and symlink actions. If you want a file manager that's quick to open, easy on resources, and scriptable without needing a whole desktop environment around it, Thunar is a solid choice regardless of which DE you actually use.
+
 ## Table of Contents
 
+- [Why Thunar](#why-thunar)
 - [What it does](#what-it-does)
 - [Usage](#usage)
   - [Resetting custom actions](#resetting-custom-actions)
@@ -31,6 +36,8 @@ A shell script that installs [Thunar](https://docs.xfce.org/xfce/thunar/start), 
 - [Credits](#credits)
 
 ## What it does
+
+See [Why Thunar](#why-thunar) if you're wondering why this script targets Thunar specifically.
 
 1. Detects your package manager and installs Thunar if it isn't already present (including Fedora Atomic variants such as Silverblue, Kinoite, and Bazzite via `rpm-ostree`).
 2. Sets Thunar as the default handler for directories (`xdg-mime default thunar.desktop inode/directory`).
@@ -70,6 +77,14 @@ It combines with other flags and environment variables normally:
 ```bash
 ./install-thunar.sh --resetconfig --terminal alacritty
 ```
+
+If you'd rather wipe *every* custom action in `uca.xml` — including ones you added yourself or that came from somewhere else, not just the ones this script manages — use `--reset-all-actions` instead:
+
+```bash
+./install-thunar.sh --reset-all-actions
+```
+
+This deletes every `<action>` entry in `~/.config/Thunar/uca.xml`, then runs the script normally so its own 10 actions are recreated fresh. Nothing else is touched — your keyboard shortcut, default file manager setting, and terminal helper files are all left exactly as they are. Like `--resetconfig`, it's safe to use even if `uca.xml` doesn't exist yet, and it combines normally with other flags (e.g. `./install-thunar.sh --reset-all-actions --terminal alacritty`).
 
 ### Custom shortcut
 

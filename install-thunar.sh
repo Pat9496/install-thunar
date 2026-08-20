@@ -24,6 +24,7 @@ run_as_root() {
 REBOOT_REQUIRED=0
 DIALOG_TOOL_REBOOT_REQUIRED=0
 RESET_CONFIG=0
+RESET_ALL_ACTIONS=0
 
 MANAGED_UCA_ACTIONS=(
   "Open Terminal Here"
@@ -740,6 +741,34 @@ build_clipboard_command() {
   esac
 }
 
+reset_all_uca_actions() {
+  if [[ "${RESET_ALL_ACTIONS}" -ne 1 ]]; then
+    return
+  fi
+
+  local config_home="${XDG_CONFIG_HOME:-${HOME}/.config}"
+  local uca_file="${config_home}/Thunar/uca.xml"
+
+  if [[ ! -f "${uca_file}" ]]; then
+    log "No existing uca.xml found; nothing to reset."
+    return
+  fi
+
+  local tmpfile
+  tmpfile=$(mktemp)
+  awk '
+      /<action>/ { in_action = 1; next }
+      in_action { if (/<\/action>/) { in_action = 0 }; next }
+      { print }
+    ' "${uca_file}" > "${tmpfile}"
+  mv "${tmpfile}" "${uca_file}"
+
+  log "Removed all custom actions (including any not managed by this script) from ${uca_file}."
+  log "This script's own actions will be recreated below; nothing else in your Thunar or desktop configuration was touched."
+
+  chezmoi_track "${uca_file}"
+}
+
 reset_uca_actions() {
   if [[ "${RESET_CONFIG}" -ne 1 ]]; then
     return
@@ -1093,6 +1122,7 @@ configure_uca_extract_here() {
   local uca_file="${uca_dir}/uca.xml"
 
   local script
+  # shellcheck disable=SC2016
   script='f="$1"; dir=$(dirname "$f"); base=$(basename "$f"); cd "$dir" || exit 1; case "$base" in *.tar.gz|*.tgz|*.tar.bz2|*.tbz2|*.tar.xz|*.txz|*.tar.zst) name="${base%.*}"; name="${name%.*}"; command -v tar >/dev/null 2>&1 || exit 1; mkdir -p "$name" && tar -xf "$base" -C "$name" ;; *.tar) name="${base%.tar}"; command -v tar >/dev/null 2>&1 || exit 1; mkdir -p "$name" && tar -xf "$base" -C "$name" ;; *.zip) name="${base%.zip}"; command -v unzip >/dev/null 2>&1 || exit 1; mkdir -p "$name" && unzip -o "$base" -d "$name" ;; *.7z) name="${base%.7z}"; sevenzip=""; for c in 7z 7za 7zr; do if command -v "$c" >/dev/null 2>&1; then sevenzip="$c"; break; fi; done; [ -n "$sevenzip" ] || exit 1; mkdir -p "$name" && "$sevenzip" x "$base" -o"$name" -y ;; *.rar) name="${base%.rar}"; command -v unrar >/dev/null 2>&1 || exit 1; mkdir -p "$name" && unrar x -y "$base" "$name/" ;; *) exit 1 ;; esac'
   local command="bash -c '${script}' -- %f"
   local escaped_command
@@ -1171,6 +1201,7 @@ configure_uca_extract_flatten() {
   local uca_file="${uca_dir}/uca.xml"
 
   local script
+  # shellcheck disable=SC2016
   script='f="$1"; dir=$(dirname "$f"); base=$(basename "$f"); cd "$dir" || exit 1; case "$base" in *.tar.gz|*.tgz|*.tar.bz2|*.tbz2|*.tar.xz|*.txz|*.tar.zst|*.tar) command -v tar >/dev/null 2>&1 || exit 1; tar -xf "$base" ;; *.zip) command -v unzip >/dev/null 2>&1 || exit 1; unzip -o "$base" ;; *.7z) sevenzip=""; for c in 7z 7za 7zr; do if command -v "$c" >/dev/null 2>&1; then sevenzip="$c"; break; fi; done; [ -n "$sevenzip" ] || exit 1; "$sevenzip" x "$base" -y ;; *.rar) command -v unrar >/dev/null 2>&1 || exit 1; unrar x -y "$base" ;; *) exit 1 ;; esac'
   local command="bash -c '${script}' -- %f"
   local escaped_command
@@ -1249,6 +1280,7 @@ configure_uca_compress_here() {
   local uca_file="${uca_dir}/uca.xml"
 
   local script
+  # shellcheck disable=SC2016
   script='dir=$(dirname "$1"); cd "$dir" || exit 1; names=(); for a in "$@"; do names+=("$(basename "$a")"); done; if [ "$#" -eq 1 ]; then base="${names[0]}"; else base=$(basename "$dir"); fi; if command -v zip >/dev/null 2>&1; then ext=".zip"; elif command -v tar >/dev/null 2>&1; then ext=".tar.gz"; else sevenzip=""; for c in 7z 7za 7zr; do if command -v "$c" >/dev/null 2>&1; then sevenzip="$c"; break; fi; done; [ -n "$sevenzip" ] || exit 1; ext=".7z"; fi; target="$base$ext"; i=0; while [ -e "$target" ]; do i=$((i + 1)); target="$base-$i$ext"; done; case "$ext" in .tar.gz) tar -czf "$target" -- "${names[@]}" ;; .zip) zip -rq "$target" -- "${names[@]}" ;; .7z) "$sevenzip" a -y "$target" -- "${names[@]}" ;; esac'
   local command="bash -c '${script}' -- %F"
   local escaped_command
@@ -1328,6 +1360,7 @@ configure_uca_generate_checksum() {
   local uca_file="${uca_dir}/uca.xml"
 
   local script
+  # shellcheck disable=SC2016
   script='dir=$(dirname "$1"); cd "$dir" || exit 1; names=(); for a in "$@"; do names+=("$(basename "$a")"); done; if [ "$#" -eq 1 ]; then base="${names[0]}"; else base=$(basename "$dir"); fi; command -v sha256sum >/dev/null 2>&1 || exit 1; target="$base.sha256"; i=0; while [ -e "$target" ]; do i=$((i + 1)); target="$base-$i.sha256"; done; sha256sum -- "${names[@]}" > "$target"'
   local command="bash -c '${script}' -- %F"
   local escaped_command
@@ -1406,6 +1439,7 @@ configure_uca_verify_checksum() {
   local uca_file="${uca_dir}/uca.xml"
 
   local script
+  # shellcheck disable=SC2016
   script='f="$1"; dir=$(dirname "$f"); base=$(basename "$f"); cd "$dir" || exit 1; command -v sha256sum >/dev/null 2>&1 || exit 1; if out=$(sha256sum -c -- "$base" 2>&1); then if command -v notify-send >/dev/null 2>&1; then notify-send "Checksum OK" "$out"; fi; else if command -v notify-send >/dev/null 2>&1; then notify-send -u critical "Checksum FAILED" "$out"; fi; exit 1; fi'
   local command="bash -c '${script}' -- %f"
   local escaped_command
@@ -1484,6 +1518,7 @@ configure_uca_folder_size() {
   local uca_file="${uca_dir}/uca.xml"
 
   local script
+  # shellcheck disable=SC2016
   script='command -v du >/dev/null 2>&1 || exit 1; result=$(du -sch -- "$@" 2>/dev/null); if command -v notify-send >/dev/null 2>&1; then notify-send "Folder size" "$result"; fi'
   local command="bash -c '${script}' -- %F"
   local escaped_command
@@ -1558,6 +1593,7 @@ configure_uca_create_link() {
   local uca_file="${uca_dir}/uca.xml"
 
   local script
+  # shellcheck disable=SC2016
   script='dir="$1"; cd "$dir" || exit 1; mode_choice=""; if command -v zenity >/dev/null 2>&1; then mode_choice=$(zenity --list --radiolist --title="Create Link" --text="Create a relative or absolute symlink?" --column="" --column="Type" TRUE "Relative" FALSE "Absolute" 2>/dev/null); elif command -v kdialog >/dev/null 2>&1; then mode_choice=$(kdialog --radiolist "Create a relative or absolute symlink?" relative "Relative" absolute "Absolute" 2>/dev/null); else exit 1; fi; case "$mode_choice" in Relative|relative) mode=relative ;; Absolute|absolute) mode=absolute ;; *) exit 1 ;; esac; method=""; if command -v zenity >/dev/null 2>&1; then method=$(zenity --list --radiolist --title="Create Link" --text="How do you want to specify the link target?" --column="" --column="Method" TRUE "Type a path" FALSE "Browse for a file" FALSE "Browse for a folder" 2>/dev/null); elif command -v kdialog >/dev/null 2>&1; then method=$(kdialog --radiolist "How do you want to specify the link target?" type "Type a path" file "Browse for a file" folder "Browse for a folder" 2>/dev/null); fi; target=""; case "$method" in "Type a path"|type) if command -v zenity >/dev/null 2>&1; then target=$(zenity --entry --title="Create Link" --text="Enter the target path (file or folder):" 2>/dev/null); elif command -v kdialog >/dev/null 2>&1; then target=$(kdialog --inputbox "Enter the target path (file or folder):" 2>/dev/null); fi ;; "Browse for a file"|file) if command -v zenity >/dev/null 2>&1; then target=$(zenity --file-selection --title="Select target file" 2>/dev/null); elif command -v kdialog >/dev/null 2>&1; then target=$(kdialog --getopenfilename 2>/dev/null); fi ;; "Browse for a folder"|folder) if command -v zenity >/dev/null 2>&1; then target=$(zenity --file-selection --directory --title="Select target folder" 2>/dev/null); elif command -v kdialog >/dev/null 2>&1; then target=$(kdialog --getexistingdirectory 2>/dev/null); fi ;; *) exit 1 ;; esac; [ -n "$target" ] || exit 1; resolved=$(realpath -- "$target" 2>/dev/null) || exit 1; [ -e "$resolved" ] || exit 1; if [ "$mode" = relative ]; then linktarget=$(realpath --relative-to="$dir" -- "$resolved"); else linktarget="$resolved"; fi; name=$(basename "$resolved"); linkname="link to $name"; i=0; while [ -e "$linkname" ] || [ -L "$linkname" ]; do i=$((i + 1)); linkname="link to $name-$i"; done; ln -s -- "$linktarget" "$linkname"'
   local command="bash -c '${script}' -- %f"
   local escaped_command
@@ -1807,6 +1843,11 @@ Options:
                        from uca.xml before reconfiguring them from scratch
                        (does not touch unrelated custom actions you may have
                        added yourself).
+  --reset-all-actions  Remove ALL Thunar custom actions from uca.xml,
+                       including any you added yourself or that came from
+                       elsewhere, before reconfiguring this script's own
+                       actions from scratch. Nothing else (keyboard shortcut,
+                       terminal helper files, etc.) is touched.
   -h, --help           Show this help message and exit.
 
 Environment variables:
@@ -1835,6 +1876,10 @@ parse_args() {
         RESET_CONFIG=1
         shift
         ;;
+      --reset-all-actions)
+        RESET_ALL_ACTIONS=1
+        shift
+        ;;
       -h | --help)
         usage
         exit 0
@@ -1861,6 +1906,7 @@ main() {
     exit 0
   fi
 
+  reset_all_uca_actions
   reset_uca_actions
 
   if confirm_configure_extras; then
